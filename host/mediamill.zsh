@@ -1,5 +1,5 @@
 # Source from ~/.zshrc. Runs ghcr.io/gidw/mediamill via podman with the right mounts.
-# Usage identical to the tool: mediamill [--jobs N] [--force] <input> [output]
+# Usage identical to the tool: mediamill [--jobs N] [--force] [--quiet] [--extract-only] <input> [output]
 # macOS: paths must live under /Users, /private or /var/folders (podman machine shares only those).
 mediamill() {
   local image="${MEDIAMILL_IMAGE:-ghcr.io/gidw/mediamill:latest}"

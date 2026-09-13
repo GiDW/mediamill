@@ -36,6 +36,7 @@ The first run pulls the image (about 90 MB compressed). Update later with `podma
 ```
 mediamill [--jobs N] [--force] [--quiet] <input-dir> <output-dir>
 mediamill [--force] [--quiet] <image|gif> [<output-file>]
+mediamill [--jobs N] [--force] [--quiet] [--extract-only] <file.pdf> [<out-dir>]
 mediamill --help
 ```
 
@@ -57,6 +58,16 @@ Convert a single file to an explicit path (parent directories are created):
 ```sh
 mediamill ~/Downloads/funny.gif ~/Videos/clips/funny.mp4
 ```
+
+### PDFs
+
+When the input is a PDF, mediamill extracts the images embedded in it (`pdfimages -all`, native resolution and format), names them `0000.jpg`, `0001.jpg`, … in document order, and converts them like any folder. The output folder defaults to `./<stem>/` and is reused on re-runs, so an unchanged PDF is a no-op and a re-saved PDF is reconverted.
+
+    mediamill scans.pdf                 # -> ./scans/0000.jpg ...
+    mediamill scans.pdf ~/Pictures/scans
+    mediamill --extract-only scans.pdf raw/   # keep the extracted files as they are (png, jpg, ...)
+
+`--extract-only` skips the optimisation step; the folder then holds the extracted files with lowercase extensions, overwritten on every run. Images `pdfimages` writes in formats mediamill does not convert (`.jb2`, `.ccitt`/`.params`, `.tif`) are kept unchanged in both modes. PDFs inside a directory tree are not extracted; they are copied like any other non-media file.
 
 Limit parallelism, for example on a shared machine:
 
@@ -83,6 +94,7 @@ Files are written to a temporary name and renamed when complete, so a killed run
 | `--jobs N` | files converted in parallel | number of CPUs visible to the container |
 | `--force` | rewrite targets even when up to date | off |
 | `--quiet` | print nothing on stdout; failures still go to stderr and the exit code is unchanged | off |
+| `--extract-only` | PDF input only: stop after extraction and rename, do not convert | off |
 | `MM_JOBS=N` | same as `--jobs`, for the wrapper | |
 | `MEDIAMILL_IMAGE` | image the wrapper runs | `ghcr.io/gidw/mediamill:latest` |
 
@@ -115,6 +127,7 @@ Inside the image the tool is `/usr/local/bin/mediamill`; `/in` is the read-only 
 ```sh
 podman build -t localhost/mediamill:dev .          # builds libvips against mozjpeg; the build fails if that linkage is lost
 test/worker.test.sh                                # per-file worker: naming, collisions, skip/force, failure and signal cleanup
+test/pdf.test.sh                                   # PDF input flow, natively (needs Homebrew poppler: brew install poppler)
 test/compare.sh native                             # golden test: byte-identical to the legacy script (needs Homebrew vips with mozjpeg + ffmpeg)
 test/compare.sh container localhost/mediamill:dev  # same, running the tool inside the image
 ```
