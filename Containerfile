@@ -48,16 +48,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libglib2.0-0t64 libexpat1 libheif1 libheif-plugin-libde265 libheif-plugin-dav1d \
       libpng16-16t64 libwebp7 libwebpmux3 libwebpdemux2 libopenjp2-7 libexif12 liblcms2-2 libhwy1t64 \
  && rm -rf /var/lib/apt/lists/* \
- && groupadd -g 65532 app && useradd -r -u 65532 -g 65532 -d /out -s /usr/sbin/nologin app \
+ && groupadd -g 65532 app && useradd -M -u 65532 -g 65532 -d /out -s /usr/sbin/nologin app \
  && mkdir -p /in /out && chown 65532:65532 /out
 COPY --from=builder /usr/local/lib /usr/local/lib
 COPY --from=builder /usr/local/bin/vips /usr/local/bin/vips
-COPY --from=ffmpeg  /ffmpeg /ffprobe /usr/local/bin/
-COPY bin/mediamill bin/mediamill-worker /usr/local/bin/
-# /usr/local/lib is searched before /usr/lib on Debian → libjpeg.so.62 resolves to mozjpeg.
-RUN ldconfig \
+# ffprobe is not used by the tool; each static binary is ~105 MB
+COPY --from=ffmpeg  /ffmpeg /usr/local/bin/ffmpeg
+# Search order is enforced by 00-usr-local.conf (sorts before libc.conf and the multiarch conf, so
+# /usr/local/lib wins on every arch) and verified by the ldd assertion: libjpeg.so.62 must resolve to mozjpeg.
+RUN echo /usr/local/lib > /etc/ld.so.conf.d/00-usr-local.conf \
+ && ldconfig \
  && ldd /usr/local/lib/libvips.so.42 | grep -q 'libjpeg.so.62 => /usr/local/lib/' \
  && /usr/local/bin/vips --version && /usr/local/bin/ffmpeg -version | head -1
+COPY bin/mediamill bin/mediamill-worker /usr/local/bin/
 
 ARG VERSION=0.0.0
 ARG GIT_SHA=unknown
