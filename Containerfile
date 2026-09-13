@@ -44,7 +44,7 @@ RUN curl -fsSL "https://github.com/libvips/libvips/releases/download/v${VIPS_VER
 # ── runtime ───────────────────────────────────────────────────────────────────
 FROM docker.io/library/debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      zsh findutils coreutils \
+      zsh findutils coreutils poppler-utils \
       libglib2.0-0t64 libexpat1 libheif1 libheif-plugin-libde265 libheif-plugin-dav1d \
       libpng16-16t64 libwebp7 libwebpmux3 libwebpdemux2 libopenjp2-7 libexif12 liblcms2-2 libhwy1t64 \
  && rm -rf /var/lib/apt/lists/* \
@@ -59,7 +59,7 @@ COPY --from=ffmpeg  /ffmpeg /usr/local/bin/ffmpeg
 RUN echo /usr/local/lib > /etc/ld.so.conf.d/00-usr-local.conf \
  && ldconfig \
  && ldd /usr/local/lib/libvips.so.42 | grep -q 'libjpeg.so.62 => /usr/local/lib/' \
- && /usr/local/bin/vips --version && /usr/local/bin/ffmpeg -version | head -1
+ && /usr/local/bin/vips --version && /usr/local/bin/ffmpeg -version | head -1 && /usr/bin/pdfimages -v 2>&1 | head -1
 COPY bin/mediamill bin/mediamill-worker /usr/local/bin/
 
 ARG VERSION=0.0.0
@@ -73,7 +73,7 @@ LABEL org.opencontainers.image.title="mediamill" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.licenses="MIT"
 
-ENV MM_VIPS=/usr/local/bin/vips MM_FFMPEG=/usr/local/bin/ffmpeg
+ENV MM_VIPS=/usr/local/bin/vips MM_FFMPEG=/usr/local/bin/ffmpeg MM_PDFIMAGES=/usr/bin/pdfimages
 VOLUME ["/in", "/out"]
 WORKDIR /out
 USER 65532:65532

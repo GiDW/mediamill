@@ -80,6 +80,10 @@ jobs:
           test -s /tmp/o/collide_2.jpg && test -s /tmp/o/anim.mp4 && test -f /tmp/o/readme.txt
           # HEIC decode (libheif-plugin-libde265) with the committed fixture
           docker run --rm -v "$PWD/test/fixtures:/f:ro" -v /tmp/o:/out --entrypoint vips "$ref" copy /f/tiny.heic /out/tiny.jpg && test -s /tmp/o/tiny.jpg
+          # PDF input: extract + convert the committed fixture
+          mkdir -p /tmp/p && chmod 777 /tmp/p
+          docker run --rm -v "$PWD/test/fixtures/tiny.pdf:/in/tiny.pdf:ro" -v /tmp/p:/out "$ref" /in/tiny.pdf /out
+          test -s /tmp/p/0000.jpg && test -s /tmp/p/0001.jpg
           docker run --rm --entrypoint sh "$ref" -c 'ldd /usr/local/lib/libvips.so.42 | grep -q "libjpeg.so.62 => /usr/local/lib/"'
       - if: github.event_name != 'pull_request'
         # file name is the bare hex digest: upload-artifact rejects ':' in paths, and merge re-adds the sha256: prefix

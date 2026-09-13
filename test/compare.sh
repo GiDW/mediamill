@@ -41,4 +41,15 @@ if [[ "$mode" == native ]]; then
   [[ $rc -eq 0 && -z "$q" ]] || { print -u2 "quiet mode: rc=$rc stdout=[$q]"; cat "$work/quiet.err" >&2; exit 1 }
   [[ ! -s "$work/quiet.err" ]] || { print -u2 "quiet mode wrote to stderr on success:"; cat "$work/quiet.err" >&2; exit 1 }
 fi
+# PDF flow: native reference from the fixture; container mode must match it byte for byte.
+pdf="$here/fixtures/tiny.pdf"
+"$root/bin/mediamill" --quiet "$pdf" "$work/pdf-native" || { print -u2 "pdf native failed"; exit 1 }
+[[ -s "$work/pdf-native/0000.jpg" && -s "$work/pdf-native/0001.jpg" ]] || { print -u2 "pdf native: expected 0000.jpg 0001.jpg"; ls "$work/pdf-native" >&2; exit 1 }
+if [[ "$mode" == container ]]; then
+  mkdir -p "$work/pdf-cand"
+  podman run --rm --init --userns=keep-id:uid=65532,gid=65532 -v "$pdf:/in/tiny.pdf:ro" -v "$work/pdf-cand:/out" "$image" --quiet /in/tiny.pdf /out \
+    || { print -u2 "pdf container failed"; exit 1 }
+  diff <(sums "$work/pdf-native") <(sums "$work/pdf-cand") || { print -u2 "pdf: container output differs from native"; exit 1 }
+  print "pdf: identical"
+fi
 print "PASS"
