@@ -1,0 +1,90 @@
+#!/usr/bin/env zsh
+# Convert ONE file. Invoked by bin/mediamill (directly or via xargs -P).
+# Usage: mediamill-worker <absolute-file>
+# Env (all optional except the roots in directory mode): see README "worker interface".
+set -u
+readonly file="$1"
+readonly in_root="${MM_IN_ROOT:?MM_IN_ROOT not set}"
+readonly out_root="${MM_OUT_ROOT:?MM_OUT_ROOT not set}"
+readonly pic_ext="${MM_PIC_EXT:-jpg}"
+readonly vid_ext="${MM_VID_EXT:-mp4}"
+readonly vips_opts="${MM_VIPS_OPTS:-[Q=75,strip,trellis-quant,interlace,optimize-coding,optimize-scans,quant-table=3,subsample_mode=on]}"
+readonly vips_bin="${MM_VIPS:-vips}"
+readonly ffmpeg_bin="${MM_FFMPEG:-ffmpeg}"
+readonly force="${MM_FORCE:-0}"
+
+readonly rel="${file#${in_root}/}"
+readonly dest="${out_root}/${rel}"
+readonly ext="${file:e}"
+readonly ext_lower="${ext:l}"
+
+fail() { print -u2 -r -- "FAIL ${rel}: $1"; exit 1 }
+
+classify() {
+  case "$1" in
+    jpg|jpeg|jp2|jfif|pjpeg|pjp|png|webp|heic) print image ;;
+    gif) print video ;;
+    *) print other ;;
+  esac
+}
+
+# Target path for a converted file. Legacy rule, kept verbatim: when the source
+# extension differs (case-sensitively) from the output extension and a file
+# "<stem>.<out_ext>" exists NEXT TO THE SOURCE that is a different inode, use
+# "<stem>_2.<out_ext>" so the two sources do not collide in the output.
+target_for() {
+  local out_ext="$1" base="${dest:r}" sibling
+  sibling="${file:r}.${out_ext}"   # separate statement: zsh expands all words of one 'local' before assigning
+  if [[ "$ext" != "$out_ext" && -e "$sibling" && ! "$sibling" -ef "$file" ]]; then
+    print -r -- "${base}_2.${out_ext}"
+  else
+    print -r -- "${base}.${out_ext}"
+  fi
+}
+
+# Write through a temp name that keeps the extension (vips and ffmpeg pick the
+# format from it), then rename: a killed run never leaves a truncated target.
+# tmp/errf are globals so the signal trap can remove them; zsh runs the trap
+# after the foreground child (vips/ffmpeg, which dies on the same signal) exits.
+tmp=""; errf=""
+cleanup() { [[ -n "$tmp" ]] && rm -f -- "$tmp"; [[ -n "$errf" ]] && rm -f -- "$errf"; }
+trap 'cleanup; exit 130' INT TERM HUP
+
+# make-like freshness: an existing target newer than its source is done unless --force.
+# Re-runs over a large tree therefore only touch new or changed sources, and an
+# interrupted run resumes (temp+rename guarantees an existing target is complete).
+up_to_date() { [[ "$force" != 1 && -e "$1" && "$1" -nt "$file" ]] }
+
+convert_to() {
+  local kind="$1" target="$2"
+  if up_to_date "$target"; then
+    print -r -- "SKIP ${rel}"; return 0
+  fi
+  tmp="${target:r}.mmtmp$$.${target:e}"
+  errf="$(mktemp "${TMPDIR:-/tmp}/mm.XXXXXX")"
+  local rc=0
+  case "$kind" in
+    image) "$vips_bin" copy "$file" "${tmp}${vips_opts}" 2>"$errf" || rc=$? ;;
+    video) "$ffmpeg_bin" -nostdin -hide_banner -loglevel error -y -i "$file" \
+             -movflags faststart -pix_fmt yuv420p \
+             -vf 'scale=trunc(iw/2)*2:trunc(ih/2)*2' -crf 24 -preset slow \
+             "$tmp" 2>"$errf" || rc=$? ;;
+  esac
+  if (( rc != 0 )); then
+    local reason; reason="$(head -c 300 "$errf" | tr '\n' ' ')"
+    cleanup
+    fail "exit ${rc} ${reason}"
+  fi
+  mv -f -- "$tmp" "$target" || { cleanup; fail "rename failed" }
+  tmp=""; cleanup
+  case "$kind" in image) print -r -- "JPG ${rel}" ;; video) print -r -- "MP4 ${rel}" ;; esac
+}
+
+case "$(classify "$ext_lower")" in
+  image) convert_to image "$(target_for "$pic_ext")" ;;
+  video) convert_to video "$(target_for "$vid_ext")" ;;
+  other)
+    if up_to_date "$dest"; then print -r -- "SKIP ${rel}"; exit 0; fi
+    cp -- "$file" "$dest" || fail "copy failed"
+    print -r -- "CP ${rel}" ;;
+esac
