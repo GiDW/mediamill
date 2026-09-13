@@ -8,7 +8,7 @@ mediamill() {
     opts+=("$1"); [[ "$1" == --jobs && $# -ge 2 ]] && { opts+=("$2"); shift }; shift
   done
   (( ${opts[(I)--help]} )) && { podman run --rm "$image" --help; return $? }
-  (( $# >= 1 && $# <= 2 )) || { print -u2 "usage: mediamill [--jobs N] [--force] <input> [output]"; return 1 }
+  (( $# >= 1 && $# <= 2 )) || { print -u2 "usage: mediamill [--jobs N] [--force] [--quiet] [--extract-only] <input> [output]"; return 1 }
   local input="$1" output="${2:-}" ctr_in ctr_out
   [[ -e "$input" ]] || { print -u2 "mediamill: no such input: $input"; return 1 }
   local in_abs="${input:A}"

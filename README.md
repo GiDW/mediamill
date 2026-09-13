@@ -102,7 +102,7 @@ Files are written to a temporary name and renamed when complete, so a killed run
 
 Exit codes: `0` success, `1` usage or input error, `2` finished but one or more files failed (see the `FAIL` lines).
 
-Output lines: `JPG`, `MP4`, `CP` and `SKIP` per file on stdout; `FAIL <file>: <reason>` on stderr.
+Output lines: `JPG`, `MP4`, `CP` and `SKIP` per file on stdout, `RAW` per file with `--extract-only`, and `PDF <file>: <n> images` after a PDF; `FAIL <file>: <reason>` on stderr.
 
 ## Platform notes
 
