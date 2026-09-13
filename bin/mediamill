@@ -1,0 +1,92 @@
+#!/usr/bin/env zsh
+# mediamill — batch image → optimised JPEG (vips+mozjpeg), gif → mp4 (ffmpeg), rest copied.
+# Usage:
+#   mediamill [--jobs N] [--force] <input-dir> <output-dir>
+#   mediamill <image-or-gif> [<output-file>]      (no output: <stem>.jpg|.mp4 in cwd, never overwrites)
+set -u
+readonly here="${0:A:h}"
+export MM_PIC_EXT="${MM_PIC_EXT:-jpg}" MM_VID_EXT="${MM_VID_EXT:-mp4}"
+export MM_VIPS_OPTS="${MM_VIPS_OPTS:-[Q=75,strip,trellis-quant,interlace,optimize-coding,optimize-scans,quant-table=3,subsample_mode=on]}"
+export MM_VIPS="${MM_VIPS:-vips}" MM_FFMPEG="${MM_FFMPEG:-ffmpeg}"
+export MM_FORCE="${MM_FORCE:-0}"
+readonly worker="${MM_WORKER:-${here}/mediamill-worker}"
+
+usage() {
+  print -u2 -- "usage: mediamill [--jobs N] [--force] <input-dir> <output-dir>"
+  print -u2 -- "       mediamill <image|gif> [<output-file>]"
+  exit 1
+}
+ncpu() { nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || print 4 }
+
+jobs="${MM_JOBS:-$(ncpu)}"
+while (( $# )) && [[ "$1" == --* ]]; do
+  case "$1" in
+    --jobs) [[ "${2:-}" == <1-> ]] || usage; jobs="$2"; shift 2 ;;
+    --jobs=*) jobs="${1#--jobs=}"; [[ "$jobs" == <1-> ]] || usage; shift ;;
+    --force) export MM_FORCE=1; shift ;;
+    --help|-h) usage ;;
+    *) print -u2 -- "unknown option $1"; usage ;;
+  esac
+done
+(( $# >= 1 && $# <= 2 )) || usage
+input="$1"; output="${2:-}"
+[[ -e "$input" ]] || { print -u2 -- "input does not exist: $input"; exit 1 }
+for t in "$MM_VIPS" "$MM_FFMPEG"; do command -v -- "$t" >/dev/null || { print -u2 -- "missing tool: $t"; exit 1 } done
+
+# ---- single file -----------------------------------------------------------
+if [[ -f "$input" ]]; then
+  [[ -d "$output" ]] && { print -u2 -- "output is a directory; give a file name"; exit 1 }
+  ext_lower="${${input:e}:l}"
+  case "$ext_lower" in
+    jpg|jpeg|jp2|jfif|pjpeg|pjp|png|webp|heic) out_ext="$MM_PIC_EXT" ;;
+    gif) out_ext="$MM_VID_EXT" ;;
+    *) print -u2 -- "unsupported file type: .$ext_lower"; exit 1 ;;
+  esac
+  if [[ -z "$output" ]]; then
+    stem="${input:t:r}"; output="${stem}.${out_ext}"; n=1
+    while [[ -e "$output" ]]; do n=$((n+1)); output="${stem}_${n}.${out_ext}"; done
+  fi
+  # Reuse the worker by pointing roots at the two parent dirs and forcing the target name:
+  # worker derives "<out_root>/<stem>.<ext>" from the source stem, so stage a same-stem link.
+  stage="$(mktemp -d)"; trap 'rm -rf -- "$stage"' EXIT
+  mkdir -p "$stage/in" "$stage/out"
+  ln -s -- "${input:A}" "$stage/in/${output:t:r}.${input:e}"
+  MM_IN_ROOT="$stage/in" MM_OUT_ROOT="$stage/out" "$worker" "$stage/in/${output:t:r}.${input:e}" || exit 2
+  mkdir -p -- "${output:A:h}" && mv -f -- "$stage/out/${output:t:r}.${out_ext}" "${output:A}" || exit 2
+  print -- "wrote ${output}"; exit 0
+fi
+
+# ---- directory --------------------------------------------------------------
+[[ -d "$input" ]] || { print -u2 -- "unsupported input: $input"; exit 1 }
+[[ -n "$output" ]] || usage
+[[ -f "$output" ]] && { print -u2 -- "output is a file, expected a directory"; exit 1 }
+mkdir -p -- "$output" || exit 1
+export MM_IN_ROOT="${input:A}" MM_OUT_ROOT="${output:A}"
+[[ "$MM_OUT_ROOT" == "$MM_IN_ROOT"* && "$MM_OUT_ROOT" != "$MM_IN_ROOT" ]] && { print -u2 -- "output must not be inside input"; exit 1 }
+
+total="$(find "$MM_IN_ROOT" -type f | wc -l | tr -d ' ')"
+print -- "mediamill: ${total} files, ${jobs} jobs, ${MM_IN_ROOT} -> ${MM_OUT_ROOT}"
+# One libvips thread per worker when running many workers; total threads == jobs.
+(( jobs > 1 )) && export VIPS_CONCURRENCY="${VIPS_CONCURRENCY:-1}"
+
+# Mirror the directory tree first (also empty dirs), then convert files in parallel.
+find "$MM_IN_ROOT" -type d -print0 | while IFS= read -r -d '' d; do
+  mkdir -p -- "${MM_OUT_ROOT}${d#${MM_IN_ROOT}}" || exit 1
+done || exit 1
+
+# Forward INT/TERM to the whole process group (xargs, workers, their vips/ffmpeg children):
+# `podman stop` / --init deliver the signal to this script only; without this the conversions
+# would keep running and the workers' temp-file traps would never fire.
+trap 'trap - INT TERM; kill -TERM 0 2>/dev/null; wait; exit 130' INT TERM
+# No "--" before the command: BSD xargs (macOS) would take it as the utility name.
+# Run the pipeline in the background and wait: zsh only runs a trap for a signal received
+# while a *foreground* job runs after that job completes, which would defer the forwarding
+# until xargs had already finished every file. `wait` is interruptible, so the trap fires now.
+find "$MM_IN_ROOT" -type f -print0 | xargs -0 -P "$jobs" -n 1 "$worker" &
+wait $!
+rc=$?
+case $rc in
+  0)   print -- "mediamill: done, ${total} files"; exit 0 ;;
+  123) print -u2 -- "mediamill: done with failures (see FAIL lines above)"; exit 2 ;;
+  *)   print -u2 -- "mediamill: aborted (xargs exit $rc)"; exit 2 ;;
+esac
