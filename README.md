@@ -59,16 +59,6 @@ Convert a single file to an explicit path (parent directories are created):
 mediamill ~/Downloads/funny.gif ~/Videos/clips/funny.mp4
 ```
 
-### PDFs
-
-When the input is a PDF, mediamill extracts the images embedded in it (`pdfimages -all`, native resolution and format), names them `0000.jpg`, `0001.jpg`, … in document order, and converts them like any folder. The output folder defaults to `./<stem>/` and is reused on re-runs, so an unchanged PDF is a no-op and a re-saved PDF is reconverted.
-
-    mediamill scans.pdf                 # -> ./scans/0000.jpg ...
-    mediamill scans.pdf ~/Pictures/scans
-    mediamill --extract-only scans.pdf raw/   # keep the extracted files as they are (png, jpg, ...)
-
-`--extract-only` skips the optimisation step; the folder then holds the extracted files with lowercase extensions, overwritten on every run. Images `pdfimages` writes in formats mediamill does not convert (`.jb2`, `.ccitt`/`.params`, `.tif`) are kept unchanged in both modes. PDFs inside a directory tree are not extracted; they are copied like any other non-media file.
-
 Limit parallelism, for example on a shared machine:
 
 ```sh
@@ -80,6 +70,18 @@ Silent unless something fails, for scripts and cron:
 ```sh
 mediamill --quiet ~/Pictures/raw ~/Pictures/out || echo "some files failed"
 ```
+
+### PDFs
+
+When the input is a PDF, mediamill extracts the images embedded in it (`pdfimages -all`, native resolution and format), names them `0000.jpg`, `0001.jpg`, … in document order, and converts them like any folder. The output folder defaults to `./<stem>/` and is reused on re-runs, so an unchanged PDF is a no-op and a re-saved PDF is reconverted.
+
+```sh
+mediamill scans.pdf                 # -> ./scans/0000.jpg ...
+mediamill scans.pdf ~/Pictures/scans
+mediamill --extract-only scans.pdf raw/   # keep the extracted files as they are (png, jpg, ...)
+```
+
+`--extract-only` skips the optimisation step; the folder then holds the extracted files with lowercase extensions, overwritten on every run. Images `pdfimages` writes in formats mediamill does not convert (`.jb2`, `.ccitt`/`.params`, `.tif`) are kept unchanged in both modes. PDFs inside a directory tree are not extracted; they are copied like any other non-media file.
 
 ### Re-runs
 
