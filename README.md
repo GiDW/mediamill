@@ -29,7 +29,33 @@ echo 'source [CHOSEN_MEDIAMILL_PATH]/host/mediamill.zsh' >> ~/.zshrc
 exec zsh
 ```
 
-The first run pulls the image (about 90 MB compressed). Update later with `podman pull ghcr.io/gidw/mediamill:latest`.
+The first run pulls the image (about 90 MB compressed).
+
+## Update
+
+There are two parts to keep current: the wrapper function in your clone and the container image. Podman does not check for a newer `latest` on its own, so an update is always explicit:
+
+```sh
+git -C [CHOSEN_MEDIAMILL_PATH] pull
+exec zsh                                        # reload the wrapper; or: source [CHOSEN_MEDIAMILL_PATH]/host/mediamill.zsh
+podman pull ghcr.io/gidw/mediamill:latest
+```
+
+Usually only the image changes; pulling the clone is needed when `host/mediamill.zsh` changed (see `git log -- host/`). The image is rebuilt weekly with current base packages even when nothing in this repository changed, so `podman pull` alone is worth running now and then.
+
+To check what you have, compare the image's version label with `VERSION` on the main branch:
+
+```sh
+podman image inspect ghcr.io/gidw/mediamill:latest --format '{{index .Config.Labels "org.opencontainers.image.version"}}'
+```
+
+To stay on a fixed version instead of `latest`, set `MEDIAMILL_IMAGE` in your `~/.zshrc`. Every push publishes a `<version>` tag (the contents of `VERSION`, for example `1.0.0`) and a `sha-<short commit>` tag; weekly rebuilds add a `YYYYMMDD` tag:
+
+```sh
+export MEDIAMILL_IMAGE=ghcr.io/gidw/mediamill:1.0.0
+```
+
+Old images are not removed by a pull. Reclaim the space with `podman image prune`.
 
 ## Usage
 
