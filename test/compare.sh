@@ -21,8 +21,9 @@ rc=$?; (( rc == 0 )) || { print -u2 "candidate exited $rc"; tail -20 "$work/cand
 
 if command -v md5 >/dev/null; then hasher=(md5 -r); else hasher=(md5sum); fi   # macOS vs Linux; each platform compares with itself
 sums() { (cd "$1" && find . -type f ! -name '*.mp4' -exec "${hasher[@]}" {} \;) | sort -k2 }
-if diff <(sums "$work/golden") <(sums "$work/cand") >"$work/diff.txt"; then
-  n="$(sums "$work/golden" | wc -l | tr -d ' ')"
+golden_sums="$(sums "$work/golden")"
+if diff <(print -r -- "$golden_sums") <(sums "$work/cand") >"$work/diff.txt"; then
+  n="$(print -r -- "$golden_sums" | wc -l | tr -d ' ')"
   (( n > 0 )) || { print -u2 "no files compared (empty golden output?)"; exit 1 }
   print "identical: $n files"
 else

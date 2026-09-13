@@ -60,9 +60,9 @@ fi
 [[ -d "$input" ]] || { print -u2 -- "unsupported input: $input"; exit 1 }
 [[ -n "$output" ]] || usage
 [[ -f "$output" ]] && { print -u2 -- "output is a file, expected a directory"; exit 1 }
-mkdir -p -- "$output" || exit 1
 export MM_IN_ROOT="${input:A}" MM_OUT_ROOT="${output:A}"
 [[ "$MM_OUT_ROOT" == "$MM_IN_ROOT" || "$MM_OUT_ROOT" == "$MM_IN_ROOT"/* ]] && { print -u2 -- "output must not be the input or inside it"; exit 1 }
+mkdir -p -- "$MM_OUT_ROOT" || exit 1
 
 total="$(find "$MM_IN_ROOT" -type f | wc -l | tr -d ' ')"
 # GNU xargs runs the utility once with no arguments on empty input (the worker would then fail).

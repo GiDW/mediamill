@@ -70,8 +70,7 @@ LABEL org.opencontainers.image.title="mediamill" \
       org.opencontainers.image.description="Batch image -> optimised JPEG (libvips+mozjpeg), gif -> mp4 (ffmpeg)" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${GIT_SHA}" \
-      org.opencontainers.image.created="${BUILD_DATE}" \
-      org.opencontainers.image.licenses="MIT"
+      org.opencontainers.image.created="${BUILD_DATE}"
 
 ENV MM_VIPS=/usr/local/bin/vips MM_FFMPEG=/usr/local/bin/ffmpeg
 VOLUME ["/in", "/out"]
