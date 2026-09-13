@@ -1,6 +1,7 @@
 #!/usr/bin/env zsh
 # Worker assertions. Requires vips + ffmpeg on PATH. Usage: test/worker.test.sh
 set -u
+zmodload zsh/stat   # zstat: portable mtime without coreutils/BSD stat differences
 here="${0:A:h}"; worker="$here/../bin/mediamill-worker"
 w="$(mktemp -d)"; trap 'rm -rf -- "$w"' EXIT
 in="$w/in"; out="$w/out"; mkdir -p "$in/d" "$out/d"
@@ -12,6 +13,7 @@ vips black "$in/d/UP.PNG" 64 64
 vips black "$in/d/coll.png" 64 64
 vips black "$in/d/coll.jpg" 64 64
 vips black "$in/d/anim.gif" 64 64
+vips black "$in/d/slash.png" 64 64
 printf 'x' > "$in/d/notes.txt"
 printf 'garbage' > "$in/d/broken.jpg"
 # -nt compares whole seconds: make sure every first-run target is strictly newer than its source
@@ -31,7 +33,7 @@ assert "no temp file left"                   '[[ -z "$(ls "$out/d" | grep mmtmp)
 assert "broken input exits 1"                '[[ $rc -eq 1 ]]'
 assert "broken input reports FAIL on stderr" 'grep -q "^FAIL d/broken.jpg" "$w/err"'
 assert "broken input leaves no output"       '[[ ! -e "$out/d/broken.jpg" ]]'
-mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" }
+mtime() { zstat +mtime -- "$1" }
 # default: up-to-date target (exists, newer than source) is skipped
 m1="$(mtime "$out/d/a.jpg")"; sleep 1
 "$worker" "$in/d/a.png" | grep -q '^SKIP d/a.png'; rc=$?
@@ -47,6 +49,9 @@ assert "stale target rewritten, JPG line"    '[[ $rc -eq 0 && "$(mtime "$out/d/a
 m3="$(mtime "$out/d/a.jpg")"; sleep 1
 MM_FORCE=1 "$worker" "$in/d/a.png" | grep -q '^JPG d/a.png'; rc=$?
 assert "force rewrites up-to-date target"    '[[ $rc -eq 0 && "$(mtime "$out/d/a.jpg")" != "$m3" ]]'
+# trailing slashes on the roots must not break the in -> out path mapping
+MM_IN_ROOT="$in/" MM_OUT_ROOT="$out/" "$worker" "$in/d/slash.png" | grep -q '^JPG d/slash.png'; rc=$?
+assert "trailing-slash roots map correctly"  '[[ $rc -eq 0 && -s "$out/d/slash.jpg" ]]'
 # SIGTERM mid-conversion must leave neither the temp output nor an error file behind.
 # 14000x14000 noise (stored uncompressed so generating it is cheap) takes >2 s to encode,
 # so the kill at 0.3 s lands mid-conversion.

@@ -4,8 +4,9 @@
 # Env (all optional except the roots in directory mode): see README "worker interface".
 set -u
 readonly file="$1"
-readonly in_root="${MM_IN_ROOT:?MM_IN_ROOT not set}"
-readonly out_root="${MM_OUT_ROOT:?MM_OUT_ROOT not set}"
+# Trailing slashes are stripped so "${file#${in_root}/}" maps in -> out correctly with MM_IN_ROOT=/in/.
+readonly in_root="${${MM_IN_ROOT:?MM_IN_ROOT not set}%/}"
+readonly out_root="${${MM_OUT_ROOT:?MM_OUT_ROOT not set}%/}"
 readonly pic_ext="${MM_PIC_EXT:-jpg}"
 readonly vid_ext="${MM_VID_EXT:-mp4}"
 readonly vips_opts="${MM_VIPS_OPTS:-[Q=75,strip,trellis-quant,interlace,optimize-coding,optimize-scans,quant-table=3,subsample_mode=on]}"
@@ -44,8 +45,10 @@ target_for() {
 
 # Write through a temp name that keeps the extension (vips and ffmpeg pick the
 # format from it), then rename: a killed run never leaves a truncated target.
-# tmp/errf are globals so the signal trap can remove them; zsh runs the trap
-# after the foreground child (vips/ffmpeg, which dies on the same signal) exits.
+# tmp/errf are globals so the signal trap can remove them. A signal to this shell
+# alone does not reach the vips/ffmpeg child: zsh runs the trap after the foreground
+# child exits, so cleanup happens once the (complete) temp file exists. A group signal
+# (Ctrl-C, or the dispatcher's kill 0) stops the child immediately and cleanup runs then.
 tmp=""; errf=""
 cleanup() { [[ -n "$tmp" ]] && rm -f -- "$tmp"; [[ -n "$errf" ]] && rm -f -- "$errf"; }
 trap 'cleanup; exit 130' INT TERM HUP
