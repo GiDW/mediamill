@@ -12,24 +12,29 @@ export MM_FORCE="${MM_FORCE:-0}"
 readonly worker="${MM_WORKER:-${here}/mediamill-worker}"
 
 usage() {
-  print -u2 -- "usage: mediamill [--jobs N] [--force] <input-dir> <output-dir>"
-  print -u2 -- "       mediamill <image|gif> [<output-file>]"
+  print -u2 -- "usage: mediamill [--jobs N] [--force] [--quiet] <input-dir> <output-dir>"
+  print -u2 -- "       mediamill [--force] [--quiet] <image|gif> [<output-file>]"
   exit 1
 }
 ncpu() { nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || print 4 }
 
 jobs="${MM_JOBS:-$(ncpu)}"
+quiet=0
 while (( $# )) && [[ "$1" == --* ]]; do
   case "$1" in
     --jobs) [[ "${2:-}" == <1-> ]] || usage; jobs="$2"; shift 2 ;;
     --jobs=*) jobs="${1#--jobs=}"; [[ "$jobs" == <1-> ]] || usage; shift ;;
     --force) export MM_FORCE=1; shift ;;
+    --quiet) quiet=1; shift ;;
     --help) usage ;;
     *) print -u2 -- "unknown option $1"; usage ;;
   esac
 done
 (( $# >= 1 && $# <= 2 )) || usage
 input="$1"; output="${2:-}"
+# --quiet: strict — nothing on stdout, for this script and the workers that inherit it.
+# Problems (FAIL lines, errors) still go to stderr and the exit code is unchanged.
+(( quiet )) && exec >/dev/null
 [[ -e "$input" ]] || { print -u2 -- "input does not exist: $input"; exit 1 }
 for t in "$MM_VIPS" "$MM_FFMPEG"; do command -v -- "$t" >/dev/null || { print -u2 -- "missing tool: $t"; exit 1 } done
 

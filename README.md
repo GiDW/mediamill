@@ -34,8 +34,8 @@ The first run pulls the image (about 90 MB compressed). Update later with `podma
 ## Usage
 
 ```
-mediamill [--jobs N] [--force] <input-dir> <output-dir>
-mediamill [--force] <image|gif> [<output-file>]
+mediamill [--jobs N] [--force] [--quiet] <input-dir> <output-dir>
+mediamill [--force] [--quiet] <image|gif> [<output-file>]
 mediamill --help
 ```
 
@@ -64,6 +64,12 @@ Limit parallelism, for example on a shared machine:
 mediamill --jobs 2 ~/Pictures/raw ~/Pictures/out
 ```
 
+Silent unless something fails, for scripts and cron:
+
+```sh
+mediamill --quiet ~/Pictures/raw ~/Pictures/out || echo "some files failed"
+```
+
 ### Re-runs
 
 A target that already exists and is newer than its source is skipped, so interrupting a run and starting it again continues where it stopped, and adding new files to the input converts only those. `--force` rewrites everything. Outputs whose source was removed are never deleted.
@@ -76,6 +82,7 @@ Files are written to a temporary name and renamed when complete, so a killed run
 |---|---|---|
 | `--jobs N` | files converted in parallel | number of CPUs visible to the container |
 | `--force` | rewrite targets even when up to date | off |
+| `--quiet` | print nothing on stdout; failures still go to stderr and the exit code is unchanged | off |
 | `MM_JOBS=N` | same as `--jobs`, for the wrapper | |
 | `MEDIAMILL_IMAGE` | image the wrapper runs | `ghcr.io/gidw/mediamill:latest` |
 

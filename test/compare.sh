@@ -35,4 +35,10 @@ for f in "$work"/golden/**/*.mp4(.N); do
   [[ -s "$work/cand/$f" ]] || { print -u2 "missing mp4 $f"; exit 1 }
   ffprobe -v error "$work/cand/$f" || { print -u2 "unplayable mp4 $f"; exit 1 }
 done
+# --quiet must produce no stdout at all (stderr and exit code unchanged); only meaningful natively.
+if [[ "$mode" == native ]]; then
+  q="$("$root/bin/mediamill" --quiet --force "$work/corpus" "$work/cand" 2>"$work/quiet.err")"; rc=$?
+  [[ $rc -eq 0 && -z "$q" ]] || { print -u2 "quiet mode: rc=$rc stdout=[$q]"; cat "$work/quiet.err" >&2; exit 1 }
+  [[ ! -s "$work/quiet.err" ]] || { print -u2 "quiet mode wrote to stderr on success:"; cat "$work/quiet.err" >&2; exit 1 }
+fi
 print "PASS"
