@@ -7,14 +7,17 @@ mediamill() {
   while (( $# )) && [[ "$1" == --* ]]; do
     opts+=("$1"); [[ "$1" == --jobs && $# -ge 2 ]] && { opts+=("$2"); shift }; shift
   done
+  (( ${opts[(I)--help]} )) && { podman run --rm "$image" --help; return $? }
   (( $# >= 1 && $# <= 2 )) || { print -u2 "usage: mediamill [--jobs N] [--force] <input> [output]"; return 1 }
   local input="$1" output="${2:-}" ctr_in ctr_out
   [[ -e "$input" ]] || { print -u2 "mediamill: no such input: $input"; return 1 }
   local in_abs="${input:A}"
   if [[ -d "$in_abs" ]]; then
     [[ -n "$output" ]] || { print -u2 "mediamill: output directory required"; return 1 }
+    local out_abs="${output:A}"
+    [[ "$out_abs" == "$in_abs" || "$out_abs" == "$in_abs"/* ]] && { print -u2 "mediamill: output must not be the input or inside it"; return 1 }
     mkdir -p -- "$output" || return 1
-    mounts=(-v "${in_abs}:/in:ro" -v "${output:A}:/out"); ctr_in=/in; ctr_out=/out
+    mounts=(-v "${in_abs}:/in:ro" -v "${out_abs}:/out"); ctr_in=/in; ctr_out=/out
   else
     mounts=(-v "${in_abs:h}:/in:ro"); ctr_in="/in/${in_abs:t}"
     if [[ -n "$output" ]]; then
