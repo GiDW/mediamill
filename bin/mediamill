@@ -3,29 +3,34 @@
 # Usage:
 #   mediamill [--jobs N] [--force] <input-dir> <output-dir>
 #   mediamill <image-or-gif> [<output-file>]      (no output: <stem>.jpg|.mp4 in cwd, never overwrites)
+#   mediamill [--jobs N] [--force] [--extract-only] <file.pdf> [<out-dir>]
 set -u
-readonly here="${0:A:h}"
+readonly here="${0:A:h}" self="${0:A}"
 export MM_PIC_EXT="${MM_PIC_EXT:-jpg}" MM_VID_EXT="${MM_VID_EXT:-mp4}"
 export MM_VIPS_OPTS="${MM_VIPS_OPTS:-[Q=75,strip,trellis-quant,interlace,optimize-coding,optimize-scans,quant-table=3,subsample_mode=on]}"
 export MM_VIPS="${MM_VIPS:-vips}" MM_FFMPEG="${MM_FFMPEG:-ffmpeg}"
+export MM_PDFIMAGES="${MM_PDFIMAGES:-pdfimages}"
 export MM_FORCE="${MM_FORCE:-0}"
 readonly worker="${MM_WORKER:-${here}/mediamill-worker}"
 
 usage() {
   print -u2 -- "usage: mediamill [--jobs N] [--force] [--quiet] <input-dir> <output-dir>"
   print -u2 -- "       mediamill [--force] [--quiet] <image|gif> [<output-file>]"
+  print -u2 -- "       mediamill [--jobs N] [--force] [--quiet] [--extract-only] <file.pdf> [<out-dir>]"
   exit 1
 }
 ncpu() { nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || print 4 }
 
 jobs="${MM_JOBS:-$(ncpu)}"
 quiet=0
+extract_only=0
 while (( $# )) && [[ "$1" == --* ]]; do
   case "$1" in
     --jobs) [[ "${2:-}" == <1-> ]] || usage; jobs="$2"; shift 2 ;;
     --jobs=*) jobs="${1#--jobs=}"; [[ "$jobs" == <1-> ]] || usage; shift ;;
     --force) export MM_FORCE=1; shift ;;
     --quiet) quiet=1; shift ;;
+    --extract-only) extract_only=1; shift ;;
     --help) usage ;;
     *) print -u2 -- "unknown option $1"; usage ;;
   esac
@@ -38,10 +43,54 @@ input="$1"; output="${2:-}"
 [[ -e "$input" ]] || { print -u2 -- "input does not exist: $input"; exit 1 }
 for t in "$MM_VIPS" "$MM_FFMPEG"; do command -v -- "$t" >/dev/null || { print -u2 -- "missing tool: $t"; exit 1 } done
 
+# ---- pdf input --------------------------------------------------------------
+# Only when the INPUT ARGUMENT is a pdf. Extract embedded images at native resolution,
+# rename to a zero-padded sequence, then convert them with the normal pipeline
+# (recursive directory-mode call) or, with --extract-only, move them as they are.
+convert_pdf() {
+  local pdf="${input:A}" name="${input:t}" target="${output:-${input:t:r}}"
+  [[ -f "$target" ]] && { print -u2 -- "output is a file, expected a directory"; exit 1 }
+  command -v -- "$MM_PDFIMAGES" >/dev/null || { print -u2 -- "missing tool: $MM_PDFIMAGES"; exit 1 }
+  target="${target:A}"
+  local tmp errf rc=0
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/mm-pdf.XXXXXX")"; errf="$tmp.err"
+  # Double-quoted (eager) on purpose: `exit` inside this function pops the local scope for
+  # tmp/errf before the EXIT trap runs, so a lazily-expanded (single-quoted) trap would hit
+  # them unset under `set -u`. Bake the already-known paths into the trap string now instead.
+  trap "rm -rf -- \"$tmp\" \"$errf\"" EXIT
+  # Contract: pdfimages -all keeps each image's native format (png for Flate, jpg for DCT, ...).
+  "$MM_PDFIMAGES" -all -- "$pdf" "$tmp/img" 2>"$errf" || rc=$?
+  if (( rc != 0 )); then
+    print -u2 -r -- "FAIL ${name}: pdfimages exit ${rc} $(head -c 300 "$errf" | tr '\n' ' ')"
+    print -u2 -- "mediamill: done with failures (see FAIL lines above)"; exit 2
+  fi
+  local -a files; files=("$tmp"/*(N.))
+  mkdir -p -- "$target" || exit 1
+  if (( ${#files} == 0 )); then print -r -- "PDF ${name}: 0 images"; exit 0; fi
+  # Contract rename (the user's zmv): img-000.png -> 0000.png; keeps a trailing non-digit part, lowercases ext.
+  ( cd "$tmp" && autoload -Uz zmv && zmv '([^[:digit:]]#)(<->)([^[:digit:]]#).(*)' '${(l:4::0:)2}$3.${4:l}' ) || {
+    print -u2 -r -- "FAIL ${name}: rename failed"; exit 2 }
+  # Stamp with the pdf's mtime: the worker skips a target that is newer than its source,
+  # so an unchanged pdf re-run skips, a re-saved pdf reconverts, --force still rewrites.
+  touch -r "$pdf" -- "$tmp"/*(N.)
+  if (( extract_only )); then
+    local f
+    for f in "$tmp"/*(N.on); do mv -f -- "$f" "$target/" || { print -u2 -r -- "FAIL ${name}: move failed"; exit 2 }; print -r -- "RAW ${f:t}"; done
+    print -r -- "PDF ${name}: ${#files} images"; exit 0
+  fi
+  # Recursive directory-mode call reuses parallelism, skip/--force (MM_FORCE is exported),
+  # --quiet (stdout already redirected) and exit codes. Explicit --jobs keeps the value.
+  "$self" --jobs "$jobs" "$tmp" "$target"; rc=$?
+  (( rc == 0 )) && print -r -- "PDF ${name}: ${#files} images"
+  exit $rc
+}
+
 # ---- single file -----------------------------------------------------------
 if [[ -f "$input" ]]; then
-  [[ -d "$output" ]] && { print -u2 -- "output is a directory; give a file name"; exit 1 }
   ext_lower="${${input:e}:l}"
+  if [[ "$ext_lower" == pdf ]]; then convert_pdf; fi     # exits
+  (( extract_only )) && { print -u2 -- "--extract-only applies to a pdf input only"; usage }
+  [[ -d "$output" ]] && { print -u2 -- "output is a directory; give a file name"; exit 1 }
   case "$ext_lower" in
     jpg|jpeg|jp2|jfif|pjpeg|pjp|png|webp|heic) out_ext="$MM_PIC_EXT" ;;
     gif) out_ext="$MM_VID_EXT" ;;
@@ -63,6 +112,7 @@ fi
 
 # ---- directory --------------------------------------------------------------
 [[ -d "$input" ]] || { print -u2 -- "unsupported input: $input"; exit 1 }
+(( extract_only )) && { print -u2 -- "--extract-only applies to a pdf input only"; usage }
 [[ -n "$output" ]] || usage
 [[ -f "$output" ]] && { print -u2 -- "output is a file, expected a directory"; exit 1 }
 export MM_IN_ROOT="${input:A}" MM_OUT_ROOT="${output:A}"
