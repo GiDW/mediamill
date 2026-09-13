@@ -24,8 +24,8 @@ If a source `photo.png` sits next to a different file `photo.jpg`, the converted
 Copy or source the wrapper from your shell startup file:
 
 ```sh
-git clone https://github.com/GiDW/mediamill ~/Projects/mediamill
-echo 'source ~/Projects/mediamill/host/mediamill.zsh' >> ~/.zshrc
+git clone https://github.com/GiDW/mediamill [CHOSEN_MEDIAMILL_PATH]
+echo 'source [CHOSEN_MEDIAMILL_PATH]/host/mediamill.zsh' >> ~/.zshrc
 exec zsh
 ```
 
