@@ -24,7 +24,7 @@ while (( $# )) && [[ "$1" == --* ]]; do
     --jobs) [[ "${2:-}" == <1-> ]] || usage; jobs="$2"; shift 2 ;;
     --jobs=*) jobs="${1#--jobs=}"; [[ "$jobs" == <1-> ]] || usage; shift ;;
     --force) export MM_FORCE=1; shift ;;
-    --help|-h) usage ;;
+    --help) usage ;;
     *) print -u2 -- "unknown option $1"; usage ;;
   esac
 done
@@ -62,9 +62,11 @@ fi
 [[ -f "$output" ]] && { print -u2 -- "output is a file, expected a directory"; exit 1 }
 mkdir -p -- "$output" || exit 1
 export MM_IN_ROOT="${input:A}" MM_OUT_ROOT="${output:A}"
-[[ "$MM_OUT_ROOT" == "$MM_IN_ROOT"* && "$MM_OUT_ROOT" != "$MM_IN_ROOT" ]] && { print -u2 -- "output must not be inside input"; exit 1 }
+[[ "$MM_OUT_ROOT" == "$MM_IN_ROOT" || "$MM_OUT_ROOT" == "$MM_IN_ROOT"/* ]] && { print -u2 -- "output must not be the input or inside it"; exit 1 }
 
 total="$(find "$MM_IN_ROOT" -type f | wc -l | tr -d ' ')"
+# GNU xargs runs the utility once with no arguments on empty input (the worker would then fail).
+(( total == 0 )) && { print -- "mediamill: nothing to do"; exit 0 }
 print -- "mediamill: ${total} files, ${jobs} jobs, ${MM_IN_ROOT} -> ${MM_OUT_ROOT}"
 # One libvips thread per worker when running many workers; total threads == jobs.
 (( jobs > 1 )) && export VIPS_CONCURRENCY="${VIPS_CONCURRENCY:-1}"
@@ -77,7 +79,12 @@ done || exit 1
 # Forward INT/TERM to the whole process group (xargs, workers, their vips/ffmpeg children):
 # `podman stop` / --init deliver the signal to this script only; without this the conversions
 # would keep running and the workers' temp-file traps would never fire.
-trap 'trap - INT TERM; kill -TERM 0 2>/dev/null; wait; exit 130' INT TERM
+# The handler *ignores* (not resets) INT/TERM first: `kill 0` also signals this shell, and with
+# the default disposition it would die before `wait` — under `podman run --init` that tears down
+# the PID namespace while the workers are still in their cleanup traps.
+# Because the pipeline below runs in the background (`&`) of a non-interactive shell, its
+# processes inherit SIG_IGN for INT; forwarding TERM to the group is what makes Ctrl-C work too.
+trap 'trap "" INT TERM; kill -TERM 0 2>/dev/null; wait; exit 130' INT TERM
 # No "--" before the command: BSD xargs (macOS) would take it as the utility name.
 # Run the pipeline in the background and wait: zsh only runs a trap for a signal received
 # while a *foreground* job runs after that job completes, which would defer the forwarding
@@ -87,6 +94,6 @@ wait $!
 rc=$?
 case $rc in
   0)   print -- "mediamill: done, ${total} files"; exit 0 ;;
-  123) print -u2 -- "mediamill: done with failures (see FAIL lines above)"; exit 2 ;;
+  1|123) print -u2 -- "mediamill: done with failures (see FAIL lines above)"; exit 2 ;;   # 123 GNU, 1 BSD xargs
   *)   print -u2 -- "mediamill: aborted (xargs exit $rc)"; exit 2 ;;
 esac
