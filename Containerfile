@@ -7,7 +7,7 @@ ARG MOZJPEG_VERSION=4.1.5
 # renovate: datasource=github-releases depName=libvips/libvips extractVersion=^v(?<version>.*)$
 ARG VIPS_VERSION=8.18.6
 
-FROM docker.io/mwader/static-ffmpeg:9.0.1 AS ffmpeg
+FROM docker.io/mwader/static-ffmpeg:9.0.2 AS ffmpeg
 
 # ── builder ───────────────────────────────────────────────────────────────────
 FROM docker.io/library/debian:trixie-slim AS builder
