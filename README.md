@@ -22,31 +22,34 @@ mediamill: 1 output name(s) claimed by more than one source; rename the sources 
 ## Requirements
 
 - Podman with a working rootless setup. On macOS that means a running `podman machine`; on Linux, rootless podman with `crun` (the default on Arch and Fedora).
-- zsh on the host for the wrapper function. Nothing else: vips and ffmpeg live inside the image.
+- zsh installed on the host (the default shell on macOS; `pacman -S zsh` / `dnf install zsh` on Linux). It runs the wrapper, whatever shell you call it from. Nothing else: vips and ffmpeg live inside the image.
 
 ## Install
 
-Copy or source the wrapper from your shell startup file:
+The wrapper, `host/mediamill`, is a normal executable. Clone the repository and link the wrapper into a directory on your `PATH`:
 
 ```sh
 git clone https://github.com/GiDW/mediamill [CHOSEN_MEDIAMILL_PATH]
-echo 'source [CHOSEN_MEDIAMILL_PATH]/host/mediamill.zsh' >> ~/.zshrc
-exec zsh
+mkdir -p ~/.local/bin
+ln -s [CHOSEN_MEDIAMILL_PATH]/host/mediamill ~/.local/bin/mediamill
 ```
+
+`~/.local/bin` is on the `PATH` by default on most Linux distributions. On macOS, add it to your shell startup file (`export PATH="$HOME/.local/bin:$PATH"`), or link into another directory already on your `PATH`. Because it is a symlink, a `git pull` updates the wrapper in place.
+
+Coming from the old `source …/host/mediamill.zsh` line: remove it from `~/.zshrc`. The file no longer exists, and a leftover function would shadow the executable.
 
 The first run pulls the image (about 90 MB compressed).
 
 ## Update
 
-There are two parts to keep current: the wrapper function in your clone and the container image. Podman does not check for a newer `latest` on its own, so an update is always explicit:
+There are two parts to keep current: the wrapper in your clone and the container image. Podman does not check for a newer `latest` on its own, so an update is always explicit:
 
 ```sh
 git -C [CHOSEN_MEDIAMILL_PATH] pull
-exec zsh                                        # reload the wrapper; or: source [CHOSEN_MEDIAMILL_PATH]/host/mediamill.zsh
 podman pull ghcr.io/gidw/mediamill:latest
 ```
 
-Usually only the image changes; pulling the clone is needed when `host/mediamill.zsh` changed (see `git log -- host/`). The image is rebuilt weekly with current base packages even when nothing in this repository changed, so `podman pull` alone is worth running now and then.
+Usually only the image changes; pulling the clone is needed when `host/mediamill` changed (see `git log -- host/`). The image is rebuilt weekly with current base packages even when nothing in this repository changed, so `podman pull` alone is worth running now and then.
 
 To check what you have, compare the image's version label with `VERSION` on the main branch:
 
