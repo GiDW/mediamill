@@ -24,6 +24,21 @@ export MM_IN_ROOT="$in" MM_OUT_ROOT="$out"
 "$worker" "$in/d/a.png" >/dev/null;         assert "png -> jpg"              '[[ -s "$out/d/a.jpg" ]]'
 assert "output is a real jpeg"               '[[ "$(vipsheader -f vips-loader "$out/d/a.jpg" 2>/dev/null)" == jpegload ]]'
 assert "no temp file left"                   '[[ -z "$(ls "$out/d" | grep mmtmp)" ]]'
+# EXIF Orientation=6 (rotate 90 CW) on 32x16 pixels: rotation is baked into the pixels, no metadata survives
+cp "$here/fixtures/rot6.jpg" "$in/d/rot6.jpg"
+"$worker" "$in/d/rot6.jpg" >/dev/null
+assert "exif orientation applied (16x32)"    '[[ "$(vipsheader -f width "$out/d/rot6.jpg")x$(vipsheader -f height "$out/d/rot6.jpg")" == 16x32 ]]'
+assert "exif (orientation, gps) removed"     '! grep -qa "Exif" "$out/d/rot6.jpg"'
+# Display P3 red: converted to sRGB (P3 red is outside sRGB, so it clips to ~255,0,0), profile dropped
+cp "$here/fixtures/p3.jpg" "$in/d/p3.jpg"
+"$worker" "$in/d/p3.jpg" >/dev/null
+px=(${=$(vips getpoint "$out/d/p3.jpg" 8 8)})
+assert "p3 converted to srgb (red >= 250, green/blue <= 10)" '(( px[1] >= 250 && px[2] <= 10 && px[3] <= 10 ))'
+assert "icc profile not embedded"            '! grep -qa "ICC_PROFILE" "$out/d/p3.jpg"'
+# untagged CMYK jpeg: libvips' fallback CMYK profile turns it into 3-band sRGB (a copy kept CMYK)
+vips icc_export "$here/fixtures/p3.jpg" "$w/cmyk.v" --output-profile cmyk && vips copy "$w/cmyk.v" "$in/d/cmyk.jpg[keep=none]"
+"$worker" "$in/d/cmyk.jpg" >/dev/null
+assert "cmyk jpeg -> 3-band srgb"            '[[ "$(vipsheader -f bands "$out/d/cmyk.jpg")" == 3 ]]'
 "$worker" "$in/d/UP.PNG" >/dev/null;        assert "uppercase ext, stem kept" '[[ -s "$out/d/UP.jpg" ]]'
 # clashes are the dispatcher's job (preflight): the worker never renames, even next to a same-stem .jpg
 "$worker" "$in/d/coll.png" >/dev/null;      assert "no _2 rename in worker"   '[[ -s "$out/d/coll.jpg" && ! -e "$out/d/coll_2.jpg" ]]'

@@ -9,7 +9,7 @@ assert() { if eval "$2"; then print "ok   $1"; else print "FAIL $1"; fails=$((fa
 
 mkdir -p "$w/stub"
 print -r -- '#!/bin/sh
-cp -- "$2" "${3%%\[*}"' > "$w/stub/vips"                       # vips copy <in> <out>[opts]
+cp -- "$2" "${3%%\[*}"' > "$w/stub/vips"                       # vips <op> <in> <out>[opts] ...
 print -r -- '#!/bin/sh
 while [ "$1" != -i ]; do shift; done; in="$2"
 for a; do out="$a"; done; cp -- "$in" "$out"' > "$w/stub/ffmpeg"  # ... -i <in> ... <out>

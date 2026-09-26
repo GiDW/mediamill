@@ -7,7 +7,7 @@ readonly file="$1"
 # Trailing slashes are stripped so "${file#${in_root}/}" maps in -> out correctly with MM_IN_ROOT=/in/.
 readonly in_root="${${MM_IN_ROOT:?MM_IN_ROOT not set}%/}"
 readonly out_root="${${MM_OUT_ROOT:?MM_OUT_ROOT not set}%/}"
-readonly vips_opts="${MM_VIPS_OPTS:-[Q=75,strip,trellis-quant,interlace,optimize-coding,optimize-scans,quant-table=3,subsample_mode=on]}"
+readonly vips_opts="${MM_VIPS_OPTS:-[Q=75,keep=none,trellis-quant,interlace,optimize-coding,optimize-scans,quant-table=3,subsample_mode=on]}"
 readonly vips_bin="${MM_VIPS:-vips}"
 readonly ffmpeg_bin="${MM_FFMPEG:-ffmpeg}"
 readonly force="${MM_FORCE:-0}"
@@ -43,7 +43,12 @@ convert_to() {
   errf="$(mktemp "${TMPDIR:-/tmp}/mm.XXXXXX")"
   local rc=0
   case "$kind" in
-    image) "$vips_bin" copy "$file" "${tmp}${vips_opts}" 2>"$errf" || rc=$? ;;
+    # thumbnail, not copy: it applies EXIF orientation to the pixels and converts an embedded
+    # ICC profile (Display P3 from iPhones, CMYK) to sRGB; keep=none then drops all metadata.
+    # The bound is VIPS_MAX_COORD with --size down, so nothing is ever resized. Untagged,
+    # upright sources come out byte-identical to a plain copy.
+    image) "$vips_bin" thumbnail "$file" "${tmp}${vips_opts}" 10000000 --size down --export-profile srgb \
+             2>"$errf" || rc=$? ;;
     video) "$ffmpeg_bin" -nostdin -hide_banner -loglevel error -y -i "$file" \
              -movflags faststart -pix_fmt yuv420p \
              -vf 'scale=trunc(iw/2)*2:trunc(ih/2)*2' -crf 24 -preset slow \

@@ -8,7 +8,7 @@ It runs as a container, so a Mac and a Linux server produce byte-identical outpu
 
 | Input extension (any case) | Result |
 |---|---|
-| `jpg` `jpeg` `jp2` `jfif` `pjpeg` `pjp` `png` `webp` `heic` | `<name>.jpg`, encoded with `Q=75, strip, trellis-quant, interlace, optimize-coding, optimize-scans, quant-table=3, subsample_mode=on` |
+| `jpg` `jpeg` `jp2` `jfif` `pjpeg` `pjp` `png` `webp` `heic` | `<name>.jpg`, encoded with `Q=75, keep=none, trellis-quant, interlace, optimize-coding, optimize-scans, quant-table=3, subsample_mode=on`; EXIF orientation is applied to the pixels and an embedded colour profile (Display P3, CMYK) is converted to sRGB |
 | `gif` | `<name>.mp4`, `libx264 -crf 24 -preset slow`, `yuv420p`, even dimensions, `faststart` |
 | anything else | copied as is |
 

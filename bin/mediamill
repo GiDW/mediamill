@@ -7,7 +7,7 @@
 set -u
 readonly here="${0:A:h}" self="${0:A}"
 export MM_PIC_EXT="${MM_PIC_EXT:-jpg}" MM_VID_EXT="${MM_VID_EXT:-mp4}"
-export MM_VIPS_OPTS="${MM_VIPS_OPTS:-[Q=75,strip,trellis-quant,interlace,optimize-coding,optimize-scans,quant-table=3,subsample_mode=on]}"
+export MM_VIPS_OPTS="${MM_VIPS_OPTS:-[Q=75,keep=none,trellis-quant,interlace,optimize-coding,optimize-scans,quant-table=3,subsample_mode=on]}"
 export MM_VIPS="${MM_VIPS:-vips}" MM_FFMPEG="${MM_FFMPEG:-ffmpeg}"
 export MM_PDFIMAGES="${MM_PDFIMAGES:-pdfimages}"
 export MM_FORCE="${MM_FORCE:-0}"

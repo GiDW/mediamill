@@ -82,6 +82,10 @@ jobs:
           mkdir -p /tmp/k/in /tmp/k/out && chmod 777 /tmp/k/out && touch /tmp/k/in/x.png /tmp/k/in/x.webp
           rc=0; docker run --rm -v /tmp/k/in:/in:ro -v /tmp/k/out:/out "$ref" /in /out 2>/tmp/k/err || rc=$?
           test "$rc" = 3 && grep -qx 'CLASH x.jpg <- x.png, x.webp' /tmp/k/err && test -z "$(ls /tmp/k/out)"
+          # EXIF orientation (needs libvips built with libexif): 32x16 tagged rotate-90 -> 16x32; y=30 exists only if rotated
+          mkdir -p /tmp/r && chmod 777 /tmp/r
+          docker run --rm -v "$PWD/test/fixtures/rot6.jpg:/in/rot6.jpg:ro" -v /tmp/r:/out "$ref" /in/rot6.jpg /out/rot6.jpg
+          docker run --rm -v /tmp/r:/r:ro --entrypoint vips "$ref" getpoint /r/rot6.jpg 8 30
           # HEIC decode (libheif-plugin-libde265) with the committed fixture
           docker run --rm -v "$PWD/test/fixtures:/f:ro" -v /tmp/o:/out --entrypoint vips "$ref" copy /f/tiny.heic /out/tiny.jpg && test -s /tmp/o/tiny.jpg
           # PDF input: extract + convert the committed fixture
