@@ -166,9 +166,11 @@ test/worker.test.sh                                # per-file worker: naming, en
 test/clash.test.sh                                 # clash preflight (vips/ffmpeg stubbed, runs anywhere)
 test/cli.test.sh                                   # option and MM_JOBS validation (no media tools needed)
 test/pdf.test.sh                                   # PDF input flow
+test/wrapper.test.sh                               # host wrapper: the podman command it builds (podman stubbed)
+test/syntax.test.sh                                # zsh -n on every script
 ```
 
-The tests need vips, vipsheader, ffmpeg and pdfimages; the image has all of them, so the simplest way to run one is inside it:
+`clash`, `cli`, `wrapper` and `syntax` need only zsh. The others need vips, vipsheader, ffmpeg and pdfimages; the image has all of them, so the simplest way to run one is inside it:
 
 ```sh
 podman run --rm -v "$PWD:/repo:ro" --entrypoint zsh localhost/mediamill:dev /repo/test/worker.test.sh
