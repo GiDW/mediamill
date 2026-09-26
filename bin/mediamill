@@ -36,6 +36,8 @@ while (( $# )) && [[ "$1" == --* ]]; do
     *) print -u2 -- "unknown option $1"; usage ;;
   esac
 done
+# --jobs is checked above; this catches a bad MM_JOBS (0 would mean unlimited to GNU xargs -P).
+[[ "$jobs" == <1-> ]] || { print -u2 -r -- "MM_JOBS must be a positive integer, got: $jobs"; usage }
 (( $# >= 1 && $# <= 2 )) || usage
 input="$1"; output="${2:-}"
 # --quiet: strict — nothing on stdout, for this script and the workers that inherit it.

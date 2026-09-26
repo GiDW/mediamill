@@ -161,6 +161,7 @@ Inside the image the tool is `/usr/local/bin/mediamill`; `/in` is the read-only 
 podman build -t localhost/mediamill:dev .          # builds libvips against mozjpeg; the build fails if that linkage is lost
 test/worker.test.sh                                # per-file worker: naming, skip/force, failure and signal cleanup
 test/clash.test.sh                                 # clash preflight (vips/ffmpeg stubbed, runs anywhere)
+test/cli.test.sh                                   # option and MM_JOBS validation (no media tools needed)
 test/pdf.test.sh                                   # PDF input flow, natively (needs Homebrew poppler: brew install poppler)
 test/compare.sh native                             # golden test: byte-identical to the legacy script (needs Homebrew vips with mozjpeg + ffmpeg)
 test/compare.sh container localhost/mediamill:dev  # same, running the tool inside the image
