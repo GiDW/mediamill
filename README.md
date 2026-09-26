@@ -12,7 +12,12 @@ It runs as a container, so a Mac and a Linux server produce byte-identical outpu
 | `gif` | `<name>.mp4`, `libx264 -crf 24 -preset slow`, `yuv420p`, even dimensions, `faststart` |
 | anything else | copied as is |
 
-If a source `photo.png` sits next to a different file `photo.jpg`, the converted PNG becomes `photo_2.jpg` so the two do not overwrite each other. On case-insensitive filesystems `PHOTO.JPG` and `photo.jpg` are recognised as the same file.
+Every output name must come from exactly one source. Before converting anything, mediamill checks the whole tree for sources that would land on the same name, such as `IMG_0001.HEIC` + `IMG_0001.PNG` (both `IMG_0001.jpg`), `clip.gif` + `clip.mp4`, or `photo.png` next to a folder called `photo.jpg`. Names are compared case-insensitively, so `Pic.png` + `pic.webp` counts too. If there are clashes it prints one `CLASH` line per output name, writes nothing and exits with `3`; rename the sources and run again:
+
+```text
+CLASH IMG_0001.jpg <- IMG_0001.HEIC, IMG_0001.PNG
+mediamill: 1 output name(s) claimed by more than one source; rename the sources and re-run (nothing was written)
+```
 
 ## Requirements
 
@@ -126,9 +131,9 @@ Files are written to a temporary name and renamed when complete, so a killed run
 | `MM_JOBS=N` | same as `--jobs`, for the wrapper | |
 | `MEDIAMILL_IMAGE` | image the wrapper runs | `ghcr.io/gidw/mediamill:latest` |
 
-Exit codes: `0` success, `1` usage or input error, `2` finished but one or more files failed (see the `FAIL` lines).
+Exit codes: `0` success, `1` usage or input error, `2` finished but one or more files failed (see the `FAIL` lines), `3` output name clashes, nothing converted (see the `CLASH` lines).
 
-Output lines: `JPG`, `MP4`, `CP` and `SKIP` per file on stdout, `RAW` per file with `--extract-only`, and `PDF <file>: <n> images` after a PDF; `FAIL <file>: <reason>` on stderr.
+Output lines: `JPG`, `MP4`, `CP` and `SKIP` per file on stdout, `RAW` per file with `--extract-only`, and `PDF <file>: <n> images` after a PDF; `FAIL <file>: <reason>` and `CLASH <output> <- <sources>` on stderr.
 
 ## Platform notes
 
@@ -154,7 +159,8 @@ Inside the image the tool is `/usr/local/bin/mediamill`; `/in` is the read-only 
 
 ```sh
 podman build -t localhost/mediamill:dev .          # builds libvips against mozjpeg; the build fails if that linkage is lost
-test/worker.test.sh                                # per-file worker: naming, collisions, skip/force, failure and signal cleanup
+test/worker.test.sh                                # per-file worker: naming, skip/force, failure and signal cleanup
+test/clash.test.sh                                 # clash preflight (vips/ffmpeg stubbed, runs anywhere)
 test/pdf.test.sh                                   # PDF input flow, natively (needs Homebrew poppler: brew install poppler)
 test/compare.sh native                             # golden test: byte-identical to the legacy script (needs Homebrew vips with mozjpeg + ffmpeg)
 test/compare.sh container localhost/mediamill:dev  # same, running the tool inside the image

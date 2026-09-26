@@ -22,8 +22,5 @@ done
 # The image's libvips has no GIF saver (cgif disabled); fall back to ffmpeg, which it does ship.
 vips copy "$tmp/rgb.v" "$dir/anim.gif" 2>/dev/null \
   || { vips copy "$tmp/rgb.v" "$tmp/anim.png" && ffmpeg -v error -y -i "$tmp/anim.png" "$dir/anim.gif"; }
-# collision fixture: a non-jpg source next to a *different* file with the target name
-vips copy "$tmp/rgb.v" "$dir/collide.png"
-vips copy "$tmp/rgb.v" "$dir/collide.jpg[Q=50]"
 printf 'not an image\n' > "$dir/readme.txt"
 find "$dir" -type f | wc -l

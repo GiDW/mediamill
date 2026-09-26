@@ -12,6 +12,7 @@ export MM_VIPS="${MM_VIPS:-vips}" MM_FFMPEG="${MM_FFMPEG:-ffmpeg}"
 export MM_PDFIMAGES="${MM_PDFIMAGES:-pdfimages}"
 export MM_FORCE="${MM_FORCE:-0}"
 readonly worker="${MM_WORKER:-${here}/mediamill-worker}"
+source "${here}/mediamill-lib.zsh" || exit 1
 
 usage() {
   print -u2 -- "usage: mediamill [--jobs N] [--force] [--quiet] <input-dir> <output-dir>"
@@ -91,9 +92,10 @@ if [[ -f "$input" ]]; then
   if [[ "$ext_lower" == pdf ]]; then convert_pdf; fi     # exits
   (( extract_only )) && { print -u2 -- "--extract-only applies to a pdf input only"; usage }
   [[ -d "$output" ]] && { print -u2 -- "output is a directory; give a file name"; exit 1 }
-  case "$ext_lower" in
-    jpg|jpeg|jp2|jfif|pjpeg|pjp|png|webp|heic) out_ext="$MM_PIC_EXT" ;;
-    gif) out_ext="$MM_VID_EXT" ;;
+  mm_kind "$ext_lower"
+  case "$REPLY" in
+    image) out_ext="$MM_PIC_EXT" ;;
+    video) out_ext="$MM_VID_EXT" ;;
     *) print -u2 -- "unsupported file type: .$ext_lower"; exit 1 ;;
   esac
   if [[ -z "$output" ]]; then
@@ -117,9 +119,39 @@ fi
 [[ -f "$output" ]] && { print -u2 -- "output is a file, expected a directory"; exit 1 }
 export MM_IN_ROOT="${input:A}" MM_OUT_ROOT="${output:A}"
 [[ "$MM_OUT_ROOT" == "$MM_IN_ROOT" || "$MM_OUT_ROOT" == "$MM_IN_ROOT"/* ]] && { print -u2 -- "output must not be the input or inside it"; exit 1 }
-mkdir -p -- "$MM_OUT_ROOT" || exit 1
 
-total="$(find "$MM_IN_ROOT" -type f | wc -l | tr -d ' ')"
+# One listing drives both the preflight and the conversion. Sorted, so clash reports and
+# dispatch order are stable. NUL-separated: any byte but NUL and / is valid in a name.
+files=(${(0o)"$(find "$MM_IN_ROOT" -type f -print0)"})
+dirs=(${(0o)"$(find "$MM_IN_ROOT" -mindepth 1 -type d -print0)"})
+
+# ---- clash preflight --------------------------------------------------------
+# Every output name must belong to exactly one source. Sources that differ only in
+# extension (IMG_0001.HEIC + IMG_0001.PNG -> IMG_0001.jpg), or a source whose target is a
+# mirrored directory, would overwrite each other. Instead of guessing new names, list them
+# and stop before anything is written; the user renames and re-runs. Names are compared
+# case-insensitively: on macOS and on podman-machine mounts IMG.jpg and img.jpg are one file.
+typeset -A claim shown multi
+for d in $dirs; do
+  rel="${d#${MM_IN_ROOT}/}"; key="${rel:l}"
+  claim[$key]="${rel}/"; shown[$key]="$rel"
+done
+for f in $files; do
+  rel="${f#${MM_IN_ROOT}/}"; mm_target "$rel"; key="${REPLY:l}"
+  if (( ${+claim[$key]} )); then
+    claim[$key]+=", $rel"; multi[$key]=1
+  else
+    claim[$key]="$rel"; shown[$key]="$REPLY"
+  fi
+done
+for key in ${(ko)multi}; do print -u2 -r -- "CLASH ${shown[$key]} <- ${claim[$key]}"; done
+if (( ${#multi} )); then
+  print -u2 -- "mediamill: ${#multi} output name(s) claimed by more than one source; rename the sources and re-run (nothing was written)"
+  exit 3
+fi
+
+mkdir -p -- "$MM_OUT_ROOT" || exit 1
+total=${#files}
 # GNU xargs runs the utility once with no arguments on empty input (the worker would then fail).
 (( total == 0 )) && { print -- "mediamill: nothing to do"; exit 0 }
 print -- "mediamill: ${total} files, ${jobs} jobs, ${MM_IN_ROOT} -> ${MM_OUT_ROOT}"
@@ -127,9 +159,9 @@ print -- "mediamill: ${total} files, ${jobs} jobs, ${MM_IN_ROOT} -> ${MM_OUT_ROO
 (( jobs > 1 )) && export VIPS_CONCURRENCY="${VIPS_CONCURRENCY:-1}"
 
 # Mirror the directory tree first (also empty dirs), then convert files in parallel.
-find "$MM_IN_ROOT" -type d -print0 | while IFS= read -r -d '' d; do
+for d in $dirs; do
   mkdir -p -- "${MM_OUT_ROOT}${d#${MM_IN_ROOT}}" || exit 1
-done || exit 1
+done
 
 # Forward INT/TERM to the whole process group (xargs, workers, their vips/ffmpeg children):
 # `podman stop` / --init deliver the signal to this script only; without this the conversions
@@ -144,7 +176,7 @@ trap 'trap "" INT TERM; kill -TERM 0 2>/dev/null; wait; exit 130' INT TERM
 # Run the pipeline in the background and wait: zsh only runs a trap for a signal received
 # while a *foreground* job runs after that job completes, which would defer the forwarding
 # until xargs had already finished every file. `wait` is interruptible, so the trap fires now.
-find "$MM_IN_ROOT" -type f -print0 | xargs -0 -P "$jobs" -n 1 "$worker" &
+print -rN -- $files | xargs -0 -P "$jobs" -n 1 "$worker" &
 wait $!
 rc=$?
 case $rc in

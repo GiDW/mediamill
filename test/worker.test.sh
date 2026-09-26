@@ -25,8 +25,8 @@ export MM_IN_ROOT="$in" MM_OUT_ROOT="$out"
 assert "output is a real jpeg"               '[[ "$(vipsheader -f vips-loader "$out/d/a.jpg" 2>/dev/null)" == jpegload ]]'
 assert "no temp file left"                   '[[ -z "$(ls "$out/d" | grep mmtmp)" ]]'
 "$worker" "$in/d/UP.PNG" >/dev/null;        assert "uppercase ext, stem kept" '[[ -s "$out/d/UP.jpg" ]]'
-"$worker" "$in/d/coll.png" >/dev/null;      assert "collision -> _2"          '[[ -s "$out/d/coll_2.jpg" ]]'
-"$worker" "$in/d/coll.jpg" >/dev/null;      assert "jpg source keeps name"    '[[ -s "$out/d/coll.jpg" ]]'
+# clashes are the dispatcher's job (preflight): the worker never renames, even next to a same-stem .jpg
+"$worker" "$in/d/coll.png" >/dev/null;      assert "no _2 rename in worker"   '[[ -s "$out/d/coll.jpg" && ! -e "$out/d/coll_2.jpg" ]]'
 "$worker" "$in/d/notes.txt" >/dev/null;     assert "other file copied"        '[[ "$(cat "$out/d/notes.txt")" == x ]]'
 "$worker" "$in/d/anim.gif" >/dev/null 2>&1; assert "gif -> mp4"               '[[ -s "$out/d/anim.mp4" ]]'
 "$worker" "$in/d/broken.jpg" >/dev/null 2>"$w/err"; rc=$?

@@ -7,41 +7,17 @@ readonly file="$1"
 # Trailing slashes are stripped so "${file#${in_root}/}" maps in -> out correctly with MM_IN_ROOT=/in/.
 readonly in_root="${${MM_IN_ROOT:?MM_IN_ROOT not set}%/}"
 readonly out_root="${${MM_OUT_ROOT:?MM_OUT_ROOT not set}%/}"
-readonly pic_ext="${MM_PIC_EXT:-jpg}"
-readonly vid_ext="${MM_VID_EXT:-mp4}"
 readonly vips_opts="${MM_VIPS_OPTS:-[Q=75,strip,trellis-quant,interlace,optimize-coding,optimize-scans,quant-table=3,subsample_mode=on]}"
 readonly vips_bin="${MM_VIPS:-vips}"
 readonly ffmpeg_bin="${MM_FFMPEG:-ffmpeg}"
 readonly force="${MM_FORCE:-0}"
+source "${0:A:h}/mediamill-lib.zsh" || exit 1
 
 readonly rel="${file#${in_root}/}"
 readonly dest="${out_root}/${rel}"
-readonly ext="${file:e}"
-readonly ext_lower="${ext:l}"
+readonly ext_lower="${${file:e}:l}"
 
 fail() { print -u2 -r -- "FAIL ${rel}: $1"; exit 1 }
-
-classify() {
-  case "$1" in
-    jpg|jpeg|jp2|jfif|pjpeg|pjp|png|webp|heic) print image ;;
-    gif) print video ;;
-    *) print other ;;
-  esac
-}
-
-# Target path for a converted file. Legacy rule, kept verbatim: when the source
-# extension differs (case-sensitively) from the output extension and a file
-# "<stem>.<out_ext>" exists NEXT TO THE SOURCE that is a different inode, use
-# "<stem>_2.<out_ext>" so the two sources do not collide in the output.
-target_for() {
-  local out_ext="$1" base="${dest:r}" sibling
-  sibling="${file:r}.${out_ext}"   # separate statement: zsh expands all words of one 'local' before assigning
-  if [[ "$ext" != "$out_ext" && -e "$sibling" && ! "$sibling" -ef "$file" ]]; then
-    print -r -- "${base}_2.${out_ext}"
-  else
-    print -r -- "${base}.${out_ext}"
-  fi
-}
 
 # Write through a temp name that keeps the extension (vips and ffmpeg pick the
 # format from it), then rename: a killed run never leaves a truncated target.
@@ -83,9 +59,12 @@ convert_to() {
   case "$kind" in image) print -r -- "JPG ${rel}" ;; video) print -r -- "MP4 ${rel}" ;; esac
 }
 
-case "$(classify "$ext_lower")" in
-  image) convert_to image "$(target_for "$pic_ext")" ;;
-  video) convert_to video "$(target_for "$vid_ext")" ;;
+# One source, one target: two sources mapping to the same name are rejected up front
+# by bin/mediamill (clash preflight), so no renaming happens here.
+mm_kind "$ext_lower"; readonly kind="$REPLY"
+mm_target "$dest"
+case "$kind" in
+  image|video) convert_to "$kind" "$REPLY" ;;
   other)
     if up_to_date "$dest"; then print -r -- "SKIP ${rel}"; exit 0; fi
     cp -- "$file" "$dest" || fail "copy failed"

@@ -75,9 +75,13 @@ jobs:
           # corpus goes in a subdirectory: make-corpus.sh rm -rf's its target, which fails on a mount point
           docker run --rm -v "$PWD/test:/test:ro" -v /tmp/c:/c --entrypoint zsh "$ref" /test/make-corpus.sh /c/corpus 2
           docker run --rm -v /tmp/c/corpus:/in:ro -v /tmp/o:/out "$ref" --jobs 2 /in /out
-          # 2 each of jpg/PNG/webp/jp2 (+2 heic only if the image could encode them, it cannot) + collide.jpg + collide_2.jpg
-          test "$(find /tmp/o -name '*.jpg' | wc -l)" -ge 10
-          test -s /tmp/o/collide_2.jpg && test -s /tmp/o/anim.mp4 && test -f /tmp/o/readme.txt
+          # 2 each of jpg/PNG/webp/jp2 (+2 heic only if the image could encode them, it cannot)
+          test "$(find /tmp/o -name '*.jpg' | wc -l)" -ge 8
+          test -s /tmp/o/anim.mp4 && test -f /tmp/o/readme.txt
+          # Clash preflight: two sources for one target -> exit 3, nothing written
+          mkdir -p /tmp/k/in /tmp/k/out && chmod 777 /tmp/k/out && touch /tmp/k/in/x.png /tmp/k/in/x.webp
+          rc=0; docker run --rm -v /tmp/k/in:/in:ro -v /tmp/k/out:/out "$ref" /in /out 2>/tmp/k/err || rc=$?
+          test "$rc" = 3 && grep -qx 'CLASH x.jpg <- x.png, x.webp' /tmp/k/err && test -z "$(ls /tmp/k/out)"
           # HEIC decode (libheif-plugin-libde265) with the committed fixture
           docker run --rm -v "$PWD/test/fixtures:/f:ro" -v /tmp/o:/out --entrypoint vips "$ref" copy /f/tiny.heic /out/tiny.jpg && test -s /tmp/o/tiny.jpg
           # PDF input: extract + convert the committed fixture
