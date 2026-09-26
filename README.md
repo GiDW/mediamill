@@ -167,7 +167,7 @@ test/compare.sh native                             # golden test: byte-identical
 test/compare.sh container localhost/mediamill:dev  # same, running the tool inside the image
 ```
 
-CI builds both architectures on native runners, smoke-tests the pushed image and rebuilds weekly without cache, which picks up Debian security fixes. Renovate keeps the pinned mozjpeg, libvips, ffmpeg and action versions current. Actions are pinned to commit SHAs, and the build verifies the mozjpeg tag against its commit and the libvips tarball against its sha256; Renovate updates each digest together with its version. Base images stay on tags so the weekly rebuild picks up Debian updates.
+CI builds both architectures on native runners, smoke-tests the pushed image, runs the `test/*.test.sh` suites inside it (the image ships `vipsheader` for them) and rebuilds weekly without cache, which picks up Debian security fixes. Renovate keeps the pinned mozjpeg, libvips, ffmpeg and action versions current. Actions are pinned to commit SHAs, and the build verifies the mozjpeg tag against its commit and the libvips tarball against its sha256; Renovate updates each digest together with its version. Base images stay on tags so the weekly rebuild picks up Debian updates.
 
 ## License
 

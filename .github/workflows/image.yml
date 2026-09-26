@@ -83,6 +83,15 @@ jobs:
           docker run --rm -v "$PWD/test/fixtures/tiny.pdf:/in/tiny.pdf:ro" -v /tmp/p:/out "$ref" /in/tiny.pdf /out
           test -s /tmp/p/0000.jpg && test -s /tmp/p/0001.jpg
           docker run --rm --entrypoint sh "$ref" -c 'ldd /usr/local/lib/libvips.so.42 | grep -q "libjpeg.so.62 => /usr/local/lib/"'
+      - name: Tests (repo scripts with the image's tools, as the container user)
+        run: |
+          ref='localhost/mediamill:pr'
+          [ "${{ github.event_name }}" = pull_request ] || ref="${IMAGE}@${{ steps.build.outputs.digest }}"
+          for t in test/*.test.sh; do
+            echo "::group::$t"
+            docker run --rm -v "$PWD:/repo:ro" --entrypoint zsh "$ref" "/repo/$t" || { echo "::endgroup::"; echo "::error::$t failed"; exit 1; }
+            echo "::endgroup::"
+          done
       - if: github.event_name != 'pull_request'
         # file name is the bare hex digest: upload-artifact rejects ':' in paths, and merge re-adds the sha256: prefix
         run: |

@@ -1,5 +1,5 @@
 #!/usr/bin/env zsh
-# Worker assertions. Requires vips + ffmpeg on PATH. Usage: test/worker.test.sh
+# Worker assertions. Requires vips, vipsheader + ffmpeg on PATH (all in the image). Usage: test/worker.test.sh
 set -u
 zmodload zsh/stat   # zstat: portable mtime without coreutils/BSD stat differences
 here="${0:A:h}"; worker="$here/../bin/mediamill-worker"
@@ -12,7 +12,7 @@ vips black "$in/d/a.png" 64 64
 vips black "$in/d/UP.PNG" 64 64
 vips black "$in/d/coll.png" 64 64
 vips black "$in/d/coll.jpg" 64 64
-vips black "$in/d/anim.gif" 64 64
+cp "$here/fixtures/anim.gif" "$in/d/anim.gif"   # committed: the image's libvips has no GIF saver
 vips black "$in/d/slash.png" 64 64
 printf 'x' > "$in/d/notes.txt"
 printf 'garbage' > "$in/d/broken.jpg"

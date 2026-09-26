@@ -60,7 +60,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && groupadd -g 65532 app && useradd -M -u 65532 -g 65532 -d /out -s /usr/sbin/nologin app \
  && mkdir -p /in /out && chown 65532:65532 /out
 COPY --from=builder /usr/local/lib /usr/local/lib
-COPY --from=builder /usr/local/bin/vips /usr/local/bin/vips
+# vipsheader: used by the tests CI runs inside the image, and handy for inspecting output
+COPY --from=builder /usr/local/bin/vips /usr/local/bin/vipsheader /usr/local/bin/
 # ffprobe is not used by the tool; each static binary is ~105 MB
 COPY --from=ffmpeg  /ffmpeg /usr/local/bin/ffmpeg
 # Search order is enforced by 00-usr-local.conf (sorts before libc.conf and the multiarch conf, so
