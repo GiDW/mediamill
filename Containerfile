@@ -12,7 +12,7 @@ ARG MOZJPEG_COMMIT=6c9f0897afa1c2738d7222a0a9ab49e8b536a267
 ARG VIPS_TAG=v8.18.6
 ARG VIPS_SHA256=3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e
 
-FROM docker.io/mwader/static-ffmpeg:9.0.1 AS ffmpeg
+FROM docker.io/mwader/static-ffmpeg:9.0.2 AS ffmpeg
 
 # ── builder ───────────────────────────────────────────────────────────────────
 FROM docker.io/library/debian:trixie-slim AS builder
