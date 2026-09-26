@@ -1,0 +1,130 @@
+# Build + push ghcr.io/gidw/mediamill. Two native builds (compiling libvips under QEMU is
+# very slow), then a manifest merge. No provenance/sbom (single manifest per platform for Podman).
+# Reusable: called by build.yml, which decides the token's permissions per event. No
+# permissions block here on purpose: jobs inherit exactly what the calling job grants.
+# github.event_name is the caller's event, so the pull_request conditions below still apply.
+name: image
+
+on:
+  workflow_call:
+
+env:
+  IMAGE: ghcr.io/gidw/mediamill
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - id: ver
+        run: |
+          echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "arch=${{ matrix.platform }}" | tr '/' '-' >> "$GITHUB_OUTPUT"
+      - if: github.event_name != 'pull_request'
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          file: Containerfile
+          platforms: ${{ matrix.platform }}
+          pull: true
+          no-cache: ${{ github.event_name == 'schedule' }}
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.ver.outputs.date }}
+          cache-from: type=gha,scope=${{ steps.ver.outputs.arch }}
+          cache-to: type=gha,mode=max,scope=${{ steps.ver.outputs.arch }}
+          provenance: false
+          sbom: false
+          # PR: load locally for the smoke test. Push: push by digest only; tags are applied in merge.
+          load: ${{ github.event_name == 'pull_request' }}
+          outputs: ${{ github.event_name != 'pull_request' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.IMAGE) || '' }}
+          tags: ${{ github.event_name == 'pull_request' && 'localhost/mediamill:pr' || '' }}
+      - name: Smoke test (corpus generated inside the image, output checked on the host)
+        run: |
+          ref='localhost/mediamill:pr'
+          [ "${{ github.event_name }}" = pull_request ] || ref="${IMAGE}@${{ steps.build.outputs.digest }}"
+          mkdir -p /tmp/c /tmp/o && chmod 777 /tmp/c /tmp/o
+          # corpus goes in a subdirectory: make-corpus.sh rm -rf's its target, which fails on a mount point
+          docker run --rm -v "$PWD/test:/test:ro" -v /tmp/c:/c --entrypoint zsh "$ref" /test/make-corpus.sh /c/corpus 2
+          docker run --rm -v /tmp/c/corpus:/in:ro -v /tmp/o:/out "$ref" --jobs 2 /in /out
+          # 2 each of jpg/PNG/webp/jp2 (+2 heic only if the image could encode them, it cannot)
+          test "$(find /tmp/o -name '*.jpg' | wc -l)" -ge 8
+          test -s /tmp/o/anim.mp4 && test -f /tmp/o/readme.txt
+          # Clash preflight: two sources for one target -> exit 3, nothing written
+          mkdir -p /tmp/k/in /tmp/k/out && chmod 777 /tmp/k/out && touch /tmp/k/in/x.png /tmp/k/in/x.webp
+          rc=0; docker run --rm -v /tmp/k/in:/in:ro -v /tmp/k/out:/out "$ref" /in /out 2>/tmp/k/err || rc=$?
+          test "$rc" = 3 && grep -qx 'CLASH x.jpg <- x.png, x.webp' /tmp/k/err && test -z "$(ls /tmp/k/out)"
+          # EXIF orientation (needs libvips built with libexif): 32x16 tagged rotate-90 -> 16x32; y=30 exists only if rotated
+          mkdir -p /tmp/r && chmod 777 /tmp/r
+          docker run --rm -v "$PWD/test/fixtures/rot6.jpg:/in/rot6.jpg:ro" -v /tmp/r:/out "$ref" /in/rot6.jpg /out/rot6.jpg
+          docker run --rm -v /tmp/r:/r:ro --entrypoint vips "$ref" getpoint /r/rot6.jpg 8 30
+          # HEIC decode (libheif-plugin-libde265) with the committed fixture
+          docker run --rm -v "$PWD/test/fixtures:/f:ro" -v /tmp/o:/out --entrypoint vips "$ref" copy /f/tiny.heic /out/tiny.jpg && test -s /tmp/o/tiny.jpg
+          # PDF input: extract + convert the committed fixture
+          mkdir -p /tmp/p && chmod 777 /tmp/p
+          docker run --rm -v "$PWD/test/fixtures/tiny.pdf:/in/tiny.pdf:ro" -v /tmp/p:/out "$ref" /in/tiny.pdf /out
+          test -s /tmp/p/0000.jpg && test -s /tmp/p/0001.jpg
+          docker run --rm --entrypoint sh "$ref" -c 'ldd /usr/local/lib/libvips.so.42 | grep -q "libjpeg.so.62 => /usr/local/lib/"'
+      - if: github.event_name != 'pull_request'
+        # file name is the bare hex digest: upload-artifact rejects ':' in paths, and merge re-adds the sha256: prefix
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: digests-${{ steps.ver.outputs.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-,format=short
+            type=raw,value=${{ needs.build.outputs.version }},enable={{is_default_branch}}
+            type=schedule,pattern={{date 'YYYYMMDD'}}
+      - name: Create manifest list and push tags
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf "${IMAGE}@sha256:%s " *)
+          docker buildx imagetools inspect "${IMAGE}:${{ steps.meta.outputs.version }}"
