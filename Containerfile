@@ -2,33 +2,42 @@
 # silently drops trellis-quant/optimize-scans/quant-table), static ffmpeg, zsh scripts.
 # Build: podman build -t localhost/mediamill:dev .
 
-# renovate: datasource=github-releases depName=mozilla/mozjpeg extractVersion=^v(?<version>.*)$
-ARG MOZJPEG_VERSION=4.1.5
-# renovate: datasource=github-releases depName=libvips/libvips extractVersion=^v(?<version>.*)$
-ARG VIPS_VERSION=8.18.6
+# Sources are verified before use: mozjpeg by the commit its tag points to (GitHub's generated
+# tag archives are not byte-stable), libvips by the sha256 of its uploaded release tarball.
+# Renovate updates each tag together with its digest (see renovate.json).
+# renovate-digest: datasource=github-tags depName=mozilla/mozjpeg
+ARG MOZJPEG_TAG=v4.1.5
+ARG MOZJPEG_COMMIT=6c9f0897afa1c2738d7222a0a9ab49e8b536a267
+# renovate-digest: datasource=github-release-attachments depName=libvips/libvips
+ARG VIPS_TAG=v8.18.6
+ARG VIPS_SHA256=3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e
 
 FROM docker.io/mwader/static-ffmpeg:9.0.1 AS ffmpeg
 
 # ── builder ───────────────────────────────────────────────────────────────────
 FROM docker.io/library/debian:trixie-slim AS builder
-ARG MOZJPEG_VERSION
-ARG VIPS_VERSION
+ARG MOZJPEG_TAG
+ARG MOZJPEG_COMMIT
+ARG VIPS_TAG
+ARG VIPS_SHA256
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl build-essential cmake nasm meson ninja-build pkgconf \
+      ca-certificates curl git build-essential cmake nasm meson ninja-build pkgconf \
       libglib2.0-dev libexpat1-dev libheif-dev libpng-dev libwebp-dev \
       libopenjp2-7-dev libexif-dev liblcms2-dev libhwy-dev \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 # mozjpeg: libjpeg62 ABI + encoder extensions. LIBDIR must be absolute (relative → installs into cwd).
-RUN curl -fsSL "https://github.com/mozilla/mozjpeg/archive/refs/tags/v${MOZJPEG_VERSION}.tar.gz" | tar xz \
- && cmake -S "mozjpeg-${MOZJPEG_VERSION}" -B mozjpeg-build -G Ninja \
+RUN git -c advice.detachedHead=false clone --quiet --depth 1 --branch "${MOZJPEG_TAG}" https://github.com/mozilla/mozjpeg.git mozjpeg \
+ && test "$(git -C mozjpeg rev-parse HEAD)" = "${MOZJPEG_COMMIT}" \
+ && cmake -S mozjpeg -B mozjpeg-build -G Ninja \
       -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_INSTALL_LIBDIR=/usr/local/lib \
       -DENABLE_STATIC=0 -DPNG_SUPPORTED=0 -DWITH_TURBOJPEG=0 \
  && ninja -C mozjpeg-build install
 ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
 # libvips: only the loaders the tool needs; modules disabled so everything is in libvips.so.
-RUN curl -fsSL "https://github.com/libvips/libvips/releases/download/v${VIPS_VERSION}/vips-${VIPS_VERSION}.tar.xz" | tar xJ \
- && cd "vips-${VIPS_VERSION}" \
+RUN curl -fsSL -o vips.tar.xz "https://github.com/libvips/libvips/releases/download/${VIPS_TAG}/vips-${VIPS_TAG#v}.tar.xz" \
+ && echo "${VIPS_SHA256}  vips.tar.xz" | sha256sum -c - \
+ && tar xJf vips.tar.xz && cd "vips-${VIPS_TAG#v}" \
  && meson setup build --prefix=/usr/local --libdir=lib --buildtype=release \
       -Ddeprecated=false -Dexamples=false -Dcplusplus=false -Ddocs=false \
       -Dmodules=disabled -Dintrospection=disabled -Dvapi=false \

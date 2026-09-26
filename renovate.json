@@ -1,12 +1,13 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
   "customManagers": [
     {
       "customType": "regex",
+      "description": "Containerfile source dependencies: a tag ARG followed by its digest ARG (commit sha or tarball sha256)",
       "managerFilePatterns": ["/^Containerfile$/"],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: extractVersion=(?<extractVersion>\\S+))?\\s*\\nARG \\w+=(?<currentValue>\\S+)"
+        "# renovate-digest: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s*\\nARG \\w+=(?<currentValue>\\S+)\\s*\\nARG \\w+=(?<currentDigest>\\S+)"
       ]
     }
   ]
