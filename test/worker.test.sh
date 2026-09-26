@@ -39,6 +39,15 @@ assert "icc profile not embedded"            '! grep -qa "ICC_PROFILE" "$out/d/p
 vips icc_export "$here/fixtures/p3.jpg" "$w/cmyk.v" --output-profile cmyk && vips copy "$w/cmyk.v" "$in/d/cmyk.jpg[keep=none]"
 "$worker" "$in/d/cmyk.jpg" >/dev/null
 assert "cmyk jpeg -> 3-band srgb"            '[[ "$(vipsheader -f bands "$out/d/cmyk.jpg")" == 3 ]]'
+# The mozjpeg options reach the encoder: interlace makes it progressive (SOF2 marker; entropy data
+# never holds ff c2, 0xff is always byte-stuffed). The reference is progressive too, so the size
+# check isolates trellis-quant/optimize-scans/quant-table/subsampling: together they save ~24% on
+# this seeded noise with the same libvips; without them the sizes are equal.
+vips gaussnoise "$w/n.v" 256 256 --seed 7 && vips bandjoin "$w/n.v $w/n.v $w/n.v" "$w/n3.v" && vips cast "$w/n3.v" "$in/d/noise.png" uchar
+vips copy "$in/d/noise.png" "$w/plain.jpg[Q=75,keep=none,interlace]"
+"$worker" "$in/d/noise.png" >/dev/null
+assert "progressive jpeg (interlace)"        '[[ " $(od -An -v -tx1 "$out/d/noise.jpg" | tr -s " \n" "  ") " == *" ff c2 "* ]]'
+assert "mozjpeg opts: < 90% of a plain progressive Q=75" '(( $(wc -c < "$out/d/noise.jpg") * 10 < $(wc -c < "$w/plain.jpg") * 9 ))'
 "$worker" "$in/d/UP.PNG" >/dev/null;        assert "uppercase ext, stem kept" '[[ -s "$out/d/UP.jpg" ]]'
 # clashes are the dispatcher's job (preflight): the worker never renames, even next to a same-stem .jpg
 "$worker" "$in/d/coll.png" >/dev/null;      assert "no _2 rename in worker"   '[[ -s "$out/d/coll.jpg" && ! -e "$out/d/coll_2.jpg" ]]'

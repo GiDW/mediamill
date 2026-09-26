@@ -159,12 +159,16 @@ Inside the image the tool is `/usr/local/bin/mediamill`; `/in` is the read-only 
 
 ```sh
 podman build -t localhost/mediamill:dev .          # builds libvips against mozjpeg; the build fails if that linkage is lost
-test/worker.test.sh                                # per-file worker: naming, skip/force, failure and signal cleanup
+test/worker.test.sh                                # per-file worker: naming, encoder options, skip/force, failure and signal cleanup
 test/clash.test.sh                                 # clash preflight (vips/ffmpeg stubbed, runs anywhere)
 test/cli.test.sh                                   # option and MM_JOBS validation (no media tools needed)
-test/pdf.test.sh                                   # PDF input flow, natively (needs Homebrew poppler: brew install poppler)
-test/compare.sh native                             # golden test: byte-identical to the legacy script (needs Homebrew vips with mozjpeg + ffmpeg)
-test/compare.sh container localhost/mediamill:dev  # same, running the tool inside the image
+test/pdf.test.sh                                   # PDF input flow
+```
+
+The tests need vips, vipsheader, ffmpeg and pdfimages; the image has all of them, so the simplest way to run one is inside it:
+
+```sh
+podman run --rm -v "$PWD:/repo:ro" --entrypoint zsh localhost/mediamill:dev /repo/test/worker.test.sh
 ```
 
 CI builds both architectures on native runners, smoke-tests the pushed image, runs the `test/*.test.sh` suites inside it (the image ships `vipsheader` for them) and rebuilds weekly without cache, which picks up Debian security fixes. Renovate keeps the pinned mozjpeg, libvips, ffmpeg and action versions current. Actions are pinned to commit SHAs, and the build verifies the mozjpeg tag against its commit and the libvips tarball against its sha256; Renovate updates each digest together with its version. Base images stay on tags so the weekly rebuild picks up Debian updates.
