@@ -70,7 +70,7 @@ RUN echo /usr/local/lib > /etc/ld.so.conf.d/00-usr-local.conf \
  && ldconfig \
  && ldd /usr/local/lib/libvips.so.42 | grep -q 'libjpeg.so.62 => /usr/local/lib/' \
  && /usr/local/bin/vips --version && /usr/local/bin/ffmpeg -version | head -1 && /usr/bin/pdfimages -v 2>&1 | head -1
-COPY bin/mediamill bin/mediamill-worker bin/mediamill-lib.zsh /usr/local/bin/
+COPY libexec/mediamill libexec/mediamill-worker libexec/mediamill-lib.zsh /usr/local/bin/
 
 ARG VERSION=0.0.0
 ARG GIT_SHA=unknown

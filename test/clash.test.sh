@@ -1,8 +1,8 @@
 #!/usr/bin/env zsh
-# Clash preflight of bin/mediamill (directory mode). vips/ffmpeg are stubbed with cp:
+# Clash preflight of libexec/mediamill (directory mode). vips/ffmpeg are stubbed with cp:
 # this tests naming, not encoding, so it needs no media tools. Usage: test/clash.test.sh
 set -u
-here="${0:A:h}"; mm="$here/../bin/mediamill"
+here="${0:A:h}"; mm="$here/../libexec/mediamill"
 w="$(mktemp -d)"; trap 'rm -rf -- "$w"' EXIT
 fails=0
 assert() { if eval "$2"; then print "ok   $1"; else print "FAIL $1"; fails=$((fails+1)); fi }

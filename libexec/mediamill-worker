@@ -1,5 +1,5 @@
 #!/usr/bin/env zsh
-# Convert ONE file. Invoked by bin/mediamill (directly or via xargs -P).
+# Convert ONE file. Invoked by libexec/mediamill (directly or via xargs -P).
 # Usage: mediamill-worker <absolute-file>
 # Env (all optional except the roots in directory mode): see README "worker interface".
 set -u
@@ -65,7 +65,7 @@ convert_to() {
 }
 
 # One source, one target: two sources mapping to the same name are rejected up front
-# by bin/mediamill (clash preflight), so no renaming happens here.
+# by libexec/mediamill (clash preflight), so no renaming happens here.
 mm_kind "$ext_lower"; readonly kind="$REPLY"
 mm_target "$dest"
 case "$kind" in

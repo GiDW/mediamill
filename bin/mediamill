@@ -1,188 +1,38 @@
 #!/usr/bin/env zsh
-# mediamill — batch image → optimised JPEG (vips+mozjpeg), gif → mp4 (ffmpeg), rest copied.
-# Usage:
-#   mediamill [--jobs N] [--force] <input-dir> <output-dir>
-#   mediamill <image-or-gif> [<output-file>]      (no output: <stem>.jpg|.mp4 in cwd, never overwrites)
-#   mediamill [--jobs N] [--force] [--extract-only] <file.pdf> [<out-dir>]
+# Host wrapper: runs ghcr.io/gidw/mediamill via podman with the right mounts. Put this file on
+# your PATH (symlink it into ~/.local/bin, or add this directory); it runs under zsh whatever
+# shell you call it from.
+# Usage identical to the tool: mediamill [--jobs N] [--force] [--quiet] [--extract-only] <input> [output]
+# macOS: paths must live under /Users, /private or /var/folders (podman machine shares only those).
 set -u
-readonly here="${0:A:h}" self="${0:A}"
-export MM_PIC_EXT="${MM_PIC_EXT:-jpg}" MM_VID_EXT="${MM_VID_EXT:-mp4}"
-export MM_VIPS_OPTS="${MM_VIPS_OPTS:-[Q=75,keep=none,trellis-quant,interlace,optimize-coding,optimize-scans,quant-table=3,subsample_mode=on]}"
-export MM_VIPS="${MM_VIPS:-vips}" MM_FFMPEG="${MM_FFMPEG:-ffmpeg}"
-export MM_PDFIMAGES="${MM_PDFIMAGES:-pdfimages}"
-export MM_FORCE="${MM_FORCE:-0}"
-readonly worker="${MM_WORKER:-${here}/mediamill-worker}"
-source "${here}/mediamill-lib.zsh" || exit 1
-
-usage() {
-  print -u2 -- "usage: mediamill [--jobs N] [--force] [--quiet] <input-dir> <output-dir>"
-  print -u2 -- "       mediamill [--force] [--quiet] <image|gif> [<output-file>]"
-  print -u2 -- "       mediamill [--jobs N] [--force] [--quiet] [--extract-only] <file.pdf> [<out-dir>]"
-  exit 1
-}
-ncpu() { nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || print 4 }
-
-jobs="${MM_JOBS:-$(ncpu)}"
-quiet=0
-extract_only=0
+image="${MEDIAMILL_IMAGE:-ghcr.io/gidw/mediamill:latest}"
+typeset -a opts mounts run
 while (( $# )) && [[ "$1" == --* ]]; do
-  case "$1" in
-    --jobs) [[ "${2:-}" == <1-> ]] || usage; jobs="$2"; shift 2 ;;
-    --jobs=*) jobs="${1#--jobs=}"; [[ "$jobs" == <1-> ]] || usage; shift ;;
-    --force) export MM_FORCE=1; shift ;;
-    --quiet) quiet=1; shift ;;
-    --extract-only) extract_only=1; shift ;;
-    --help) usage ;;
-    *) print -u2 -- "unknown option $1"; usage ;;
-  esac
+  opts+=("$1"); [[ "$1" == --jobs && $# -ge 2 ]] && { opts+=("$2"); shift }; shift
 done
-# --jobs is checked above; this catches a bad MM_JOBS (0 would mean unlimited to GNU xargs -P).
-[[ "$jobs" == <1-> ]] || { print -u2 -r -- "MM_JOBS must be a positive integer, got: $jobs"; usage }
-(( $# >= 1 && $# <= 2 )) || usage
-input="$1"; output="${2:-}"
-# --quiet: strict — nothing on stdout, for this script and the workers that inherit it.
-# Problems (FAIL lines, errors) still go to stderr and the exit code is unchanged.
-(( quiet )) && exec >/dev/null
-[[ -e "$input" ]] || { print -u2 -- "input does not exist: $input"; exit 1 }
-for t in "$MM_VIPS" "$MM_FFMPEG"; do command -v -- "$t" >/dev/null || { print -u2 -- "missing tool: $t"; exit 1 } done
-
-# ---- pdf input --------------------------------------------------------------
-# Only when the INPUT ARGUMENT is a pdf. Extract embedded images at native resolution,
-# rename to a zero-padded sequence, then convert them with the normal pipeline
-# (recursive directory-mode call) or, with --extract-only, move them as they are.
-convert_pdf() {
-  local pdf="${input:A}" name="${input:t}" target="${output:-${input:t:r}}"
-  [[ -f "$target" ]] && { print -u2 -- "output is a file, expected a directory"; exit 1 }
-  command -v -- "$MM_PDFIMAGES" >/dev/null || { print -u2 -- "missing tool: $MM_PDFIMAGES"; exit 1 }
-  target="${target:A}"
-  local tmp errf rc=0
-  tmp="$(mktemp -d "${TMPDIR:-/tmp}/mm-pdf.XXXXXX")"; errf="$tmp.err"
-  # Double-quoted (eager) on purpose: `exit` inside this function pops the local scope for
-  # tmp/errf before the EXIT trap runs, so a lazily-expanded (single-quoted) trap would hit
-  # them unset under `set -u`. Bake the already-known paths into the trap string now instead.
-  trap "rm -rf -- \"$tmp\" \"$errf\"" EXIT
-  # Contract: pdfimages -all keeps each image's native format (png for Flate, jpg for DCT, ...).
-  "$MM_PDFIMAGES" -all -- "$pdf" "$tmp/img" 2>"$errf" || rc=$?
-  if (( rc != 0 )); then
-    print -u2 -r -- "FAIL ${name}: pdfimages exit ${rc} $(head -c 300 "$errf" | tr '\n' ' ')"
-    print -u2 -- "mediamill: done with failures (see FAIL lines above)"; exit 2
-  fi
-  local -a files; files=("$tmp"/*(N.))
-  mkdir -p -- "$target" || exit 1
-  if (( ${#files} == 0 )); then print -r -- "PDF ${name}: 0 images"; exit 0; fi
-  # Contract rename (the user's zmv): img-000.png -> 0000.png; keeps a trailing non-digit part, lowercases ext.
-  ( cd "$tmp" && autoload -Uz zmv && zmv '([^[:digit:]]#)(<->)([^[:digit:]]#).(*)' '${(l:4::0:)2}$3.${4:l}' ) || {
-    print -u2 -r -- "FAIL ${name}: rename failed"; exit 2 }
-  # Stamp with the pdf's mtime: the worker skips a target that is newer than its source,
-  # so an unchanged pdf re-run skips, a re-saved pdf reconverts, --force still rewrites.
-  touch -r "$pdf" -- "$tmp"/*(N.)
-  if (( extract_only )); then
-    local f
-    for f in "$tmp"/*(N.on); do mv -f -- "$f" "$target/" || { print -u2 -r -- "FAIL ${name}: move failed"; exit 2 }; print -r -- "RAW ${f:t}"; done
-    print -r -- "PDF ${name}: ${#files} images"; exit 0
-  fi
-  # Recursive directory-mode call reuses parallelism, skip/--force (MM_FORCE is exported),
-  # --quiet (stdout already redirected) and exit codes. Explicit --jobs keeps the value.
-  "$self" --jobs "$jobs" "$tmp" "$target"; rc=$?
-  (( rc == 0 )) && print -r -- "PDF ${name}: ${#files} images"
-  exit $rc
-}
-
-# ---- single file -----------------------------------------------------------
-if [[ -f "$input" ]]; then
-  ext_lower="${${input:e}:l}"
-  if [[ "$ext_lower" == pdf ]]; then convert_pdf; fi     # exits
-  (( extract_only )) && { print -u2 -- "--extract-only applies to a pdf input only"; usage }
-  [[ -d "$output" ]] && { print -u2 -- "output is a directory; give a file name"; exit 1 }
-  mm_kind "$ext_lower"
-  case "$REPLY" in
-    image) out_ext="$MM_PIC_EXT" ;;
-    video) out_ext="$MM_VID_EXT" ;;
-    *) print -u2 -- "unsupported file type: .$ext_lower"; exit 1 ;;
-  esac
-  if [[ -z "$output" ]]; then
-    stem="${input:t:r}"; output="${stem}.${out_ext}"; n=1
-    while [[ -e "$output" ]]; do n=$((n+1)); output="${stem}_${n}.${out_ext}"; done
-  fi
-  # Reuse the worker by pointing roots at the two parent dirs and forcing the target name:
-  # worker derives "<out_root>/<stem>.<ext>" from the source stem, so stage a same-stem link.
-  stage="$(mktemp -d)"; trap 'rm -rf -- "$stage"' EXIT
-  mkdir -p "$stage/in" "$stage/out"
-  ln -s -- "${input:A}" "$stage/in/${output:t:r}.${input:e}"
-  MM_IN_ROOT="$stage/in" MM_OUT_ROOT="$stage/out" "$worker" "$stage/in/${output:t:r}.${input:e}" || exit 2
-  mkdir -p -- "${output:A:h}" && mv -f -- "$stage/out/${output:t:r}.${out_ext}" "${output:A}" || exit 2
-  print -- "wrote ${output}"; exit 0
-fi
-
-# ---- directory --------------------------------------------------------------
-[[ -d "$input" ]] || { print -u2 -- "unsupported input: $input"; exit 1 }
-(( extract_only )) && { print -u2 -- "--extract-only applies to a pdf input only"; usage }
-[[ -n "$output" ]] || usage
-[[ -f "$output" ]] && { print -u2 -- "output is a file, expected a directory"; exit 1 }
-export MM_IN_ROOT="${input:A}" MM_OUT_ROOT="${output:A}"
-[[ "$MM_OUT_ROOT" == "$MM_IN_ROOT" || "$MM_OUT_ROOT" == "$MM_IN_ROOT"/* ]] && { print -u2 -- "output must not be the input or inside it"; exit 1 }
-
-# One listing drives both the preflight and the conversion. Sorted, so clash reports and
-# dispatch order are stable. NUL-separated: any byte but NUL and / is valid in a name.
-files=(${(0o)"$(find "$MM_IN_ROOT" -type f -print0)"})
-dirs=(${(0o)"$(find "$MM_IN_ROOT" -mindepth 1 -type d -print0)"})
-
-# ---- clash preflight --------------------------------------------------------
-# Every output name must belong to exactly one source. Sources that differ only in
-# extension (IMG_0001.HEIC + IMG_0001.PNG -> IMG_0001.jpg), or a source whose target is a
-# mirrored directory, would overwrite each other. Instead of guessing new names, list them
-# and stop before anything is written; the user renames and re-runs. Names are compared
-# case-insensitively: on macOS and on podman-machine mounts IMG.jpg and img.jpg are one file.
-typeset -A claim shown multi
-for d in $dirs; do
-  rel="${d#${MM_IN_ROOT}/}"; key="${rel:l}"
-  claim[$key]="${rel}/"; shown[$key]="$rel"
-done
-for f in $files; do
-  rel="${f#${MM_IN_ROOT}/}"; mm_target "$rel"; key="${REPLY:l}"
-  if (( ${+claim[$key]} )); then
-    claim[$key]+=", $rel"; multi[$key]=1
+(( ${opts[(I)--help]} )) && exec podman run --rm "$image" --help
+(( $# >= 1 && $# <= 2 )) || { print -u2 "usage: mediamill [--jobs N] [--force] [--quiet] [--extract-only] <input> [output]"; exit 1 }
+input="$1" output="${2:-}"
+[[ -e "$input" ]] || { print -u2 -r -- "mediamill: no such input: $input"; exit 1 }
+in_abs="${input:A}"
+if [[ -d "$in_abs" ]]; then
+  [[ -n "$output" ]] || { print -u2 "mediamill: output directory required"; exit 1 }
+  out_abs="${output:A}"
+  [[ "$out_abs" == "$in_abs" || "$out_abs" == "$in_abs"/* ]] && { print -u2 "mediamill: output must not be the input or inside it"; exit 1 }
+  mkdir -p -- "$output" || exit 1
+  mounts=(-v "${in_abs}:/in:ro" -v "${out_abs}:/out"); ctr_in=/in; ctr_out=/out
+else
+  mounts=(-v "${in_abs:h}:/in:ro"); ctr_in="/in/${in_abs:t}"
+  if [[ -n "$output" ]]; then
+    mkdir -p -- "${output:A:h}" || exit 1
+    mounts+=(-v "${output:A:h}:/out"); ctr_out="/out/${output:t}"
   else
-    claim[$key]="$rel"; shown[$key]="$REPLY"
+    mounts+=(-v "${PWD:A}:/out"); ctr_out=""
   fi
-done
-for key in ${(ko)multi}; do print -u2 -r -- "CLASH ${shown[$key]} <- ${claim[$key]}"; done
-if (( ${#multi} )); then
-  print -u2 -- "mediamill: ${#multi} output name(s) claimed by more than one source; rename the sources and re-run (nothing was written)"
-  exit 3
 fi
-
-mkdir -p -- "$MM_OUT_ROOT" || exit 1
-total=${#files}
-# GNU xargs runs the utility once with no arguments on empty input (the worker would then fail).
-(( total == 0 )) && { print -- "mediamill: nothing to do"; exit 0 }
-print -- "mediamill: ${total} files, ${jobs} jobs, ${MM_IN_ROOT} -> ${MM_OUT_ROOT}"
-# One libvips thread per worker when running many workers; total threads == jobs.
-(( jobs > 1 )) && export VIPS_CONCURRENCY="${VIPS_CONCURRENCY:-1}"
-
-# Mirror the directory tree first (also empty dirs), then convert files in parallel.
-for d in $dirs; do
-  mkdir -p -- "${MM_OUT_ROOT}${d#${MM_IN_ROOT}}" || exit 1
-done
-
-# Forward INT/TERM to the whole process group (xargs, workers, their vips/ffmpeg children):
-# `podman stop` / --init deliver the signal to this script only; without this the conversions
-# would keep running and the workers' temp-file traps would never fire.
-# The handler *ignores* (not resets) INT/TERM first: `kill 0` also signals this shell, and with
-# the default disposition it would die before `wait` — under `podman run --init` that tears down
-# the PID namespace while the workers are still in their cleanup traps.
-# Because the pipeline below runs in the background (`&`) of a non-interactive shell, its
-# processes inherit SIG_IGN for INT; forwarding TERM to the group is what makes Ctrl-C work too.
-trap 'trap "" INT TERM; kill -TERM 0 2>/dev/null; wait; exit 130' INT TERM
-# No "--" before the command: BSD xargs (macOS) would take it as the utility name.
-# Run the pipeline in the background and wait: zsh only runs a trap for a signal received
-# while a *foreground* job runs after that job completes, which would defer the forwarding
-# until xargs had already finished every file. `wait` is interruptible, so the trap fires now.
-print -rN -- $files | xargs -0 -P "$jobs" -n 1 "$worker" &
-wait $!
-rc=$?
-case $rc in
-  0)   print -- "mediamill: done, ${total} files"; exit 0 ;;
-  1|123) print -u2 -- "mediamill: done with failures (see FAIL lines above)"; exit 2 ;;   # 123 GNU, 1 BSD xargs
-  *)   print -u2 -- "mediamill: aborted (xargs exit $rc)"; exit 2 ;;
-esac
+run=(podman run --rm --init --userns=keep-id:uid=65532,gid=65532 -w /out)
+[[ "$OSTYPE" == linux* ]] && run+=(--group-add keep-groups)
+[[ -t 0 && -t 1 ]] && run+=(-it)
+[[ -n "${MM_JOBS:-}" ]] && run+=(-e MM_JOBS)
+# exec: podman replaces this script, so Ctrl-C and the exit code go straight to and from it.
+exec "${run[@]}" "${mounts[@]}" "$image" "${opts[@]}" "$ctr_in" ${ctr_out:+"$ctr_out"}

@@ -1,4 +1,4 @@
-# Sourced by bin/mediamill and bin/mediamill-worker: the single definition of what a file
+# Sourced by libexec/mediamill and libexec/mediamill-worker: the single definition of what a file
 # becomes. The wrapper's clash preflight and the worker must agree on every target name.
 # Both functions set REPLY instead of printing, so the preflight can call them per file
 # without forking a subshell.

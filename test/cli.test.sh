@@ -1,8 +1,8 @@
 #!/usr/bin/env zsh
-# Argument and environment validation of bin/mediamill. Needs no media tools: vips/ffmpeg
+# Argument and environment validation of libexec/mediamill. Needs no media tools: vips/ffmpeg
 # are replaced by `true` and the input is empty, so a valid run ends at "nothing to do".
 set -u
-here="${0:A:h}"; mm="$here/../bin/mediamill"
+here="${0:A:h}"; mm="$here/../libexec/mediamill"
 w="$(mktemp -d)"; trap 'rm -rf -- "$w"' EXIT
 fails=0
 assert() { if eval "$2"; then print "ok   $1"; else print "FAIL $1"; fails=$((fails+1)); fi }

@@ -1,8 +1,8 @@
 #!/usr/bin/env zsh
-# PDF input flow of bin/mediamill. Requires vips, ffmpeg, pdfimages, vipsheader on PATH.
+# PDF input flow of libexec/mediamill. Requires vips, ffmpeg, pdfimages, vipsheader on PATH.
 set -u
 zmodload zsh/stat; mtime() { zstat +mtime -- "$1" }
-here="${0:A:h}"; mm="$here/../bin/mediamill"; pdf="$here/fixtures/tiny.pdf"
+here="${0:A:h}"; mm="$here/../libexec/mediamill"; pdf="$here/fixtures/tiny.pdf"
 w="$(mktemp -d)"; trap 'rm -rf -- "$w"' EXIT
 fails=0
 assert() { if eval "$2"; then print "ok   $1"; else print "FAIL $1"; fails=$((fails+1)); fi }

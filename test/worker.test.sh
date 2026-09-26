@@ -2,7 +2,7 @@
 # Worker assertions. Requires vips, vipsheader + ffmpeg on PATH (all in the image). Usage: test/worker.test.sh
 set -u
 zmodload zsh/stat   # zstat: portable mtime without coreutils/BSD stat differences
-here="${0:A:h}"; worker="$here/../bin/mediamill-worker"
+here="${0:A:h}"; worker="$here/../libexec/mediamill-worker"
 w="$(mktemp -d)"; trap 'rm -rf -- "$w"' EXIT
 in="$w/in"; out="$w/out"; mkdir -p "$in/d" "$out/d"
 fails=0

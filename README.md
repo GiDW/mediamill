@@ -26,12 +26,12 @@ mediamill: 1 output name(s) claimed by more than one source; rename the sources 
 
 ## Install
 
-The wrapper, `host/mediamill`, is a normal executable. Clone the repository and link the wrapper into a directory on your `PATH`:
+The wrapper, `bin/mediamill`, is a normal executable. Clone the repository and link the wrapper into a directory on your `PATH`:
 
 ```sh
 git clone https://github.com/GiDW/mediamill [CHOSEN_MEDIAMILL_PATH]
 mkdir -p ~/.local/bin
-ln -s [CHOSEN_MEDIAMILL_PATH]/host/mediamill ~/.local/bin/mediamill
+ln -s [CHOSEN_MEDIAMILL_PATH]/bin/mediamill ~/.local/bin/mediamill
 ```
 
 `~/.local/bin` is on the `PATH` by default on most Linux distributions. On macOS, add it to your shell startup file (`export PATH="$HOME/.local/bin:$PATH"`), or link into another directory already on your `PATH`. Because it is a symlink, a `git pull` updates the wrapper in place.
@@ -49,7 +49,7 @@ git -C [CHOSEN_MEDIAMILL_PATH] pull
 podman pull ghcr.io/gidw/mediamill:latest
 ```
 
-Usually only the image changes; pulling the clone is needed when `host/mediamill` changed (see `git log -- host/`). The image is rebuilt weekly with current base packages even when nothing in this repository changed, so `podman pull` alone is worth running now and then.
+Usually only the image changes; pulling the clone is needed when `bin/mediamill` changed (see `git log -- bin/`). The image is rebuilt weekly with current base packages even when nothing in this repository changed, so `podman pull` alone is worth running now and then.
 
 To check what you have, compare the image's version label with `VERSION` on the main branch:
 
@@ -156,7 +156,7 @@ podman run --rm -it --init \
   ghcr.io/gidw/mediamill:latest --jobs 4 /in /out
 ```
 
-Inside the image the tool is `/usr/local/bin/mediamill`; `/in` is the read-only input, `/out` the writable output and working directory.
+Inside the image the tool is `/usr/local/bin/mediamill` (from `libexec/` in this repository, not meant to run on the host); `/in` is the read-only input, `/out` the writable output and working directory.
 
 ## Development
 
