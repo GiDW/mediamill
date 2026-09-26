@@ -9,8 +9,8 @@
 ARG MOZJPEG_TAG=v4.1.5
 ARG MOZJPEG_COMMIT=6c9f0897afa1c2738d7222a0a9ab49e8b536a267
 # renovate-digest: datasource=github-release-attachments depName=libvips/libvips
-ARG VIPS_TAG=v8.18.6
-ARG VIPS_SHA256=3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e
+ARG VIPS_TAG=v8.18.7
+ARG VIPS_SHA256=5baaead3b0bb20ffdb9e9ff09aa9fda08620923df77b63b436654cb5e0b3bf94
 
 FROM docker.io/mwader/static-ffmpeg:9.0.2 AS ffmpeg
 
