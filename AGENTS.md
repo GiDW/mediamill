@@ -61,6 +61,7 @@ for t in test/*.test.sh; do podman run --rm -v "$PWD:/repo:ro" --entrypoint zsh 
 ## CI
 
 - `build.yml` sets `permissions: {}` and grants per job: pull requests get a read-only token, only `publish` gets `packages: write`. `image.yml` has no permissions block on purpose: it inherits exactly what the caller grants.
+- The `main` ruleset requires one status check, `pr-ok` (a job in `build.yml` that passes only if `check` succeeded). Keep that job name; add new pull request jobs to its `needs`.
 - Actions are pinned to commit SHAs with a `# vN` comment; Renovate maintains them. Pin new actions the same way.
 - Run actionlint after editing a workflow.
 

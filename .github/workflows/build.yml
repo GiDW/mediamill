@@ -27,6 +27,17 @@ jobs:
       contents: read
     uses: ./.github/workflows/image.yml
 
+  # The single required status check in the main ruleset. Jobs inside the reusable workflow
+  # report as "check / build (...)", which changes with the matrix; this name stays fixed.
+  # always(): a skipped job counts as passing, so it must run (and fail) when check fails.
+  pr-ok:
+    if: always() && github.event_name == 'pull_request'
+    needs: check
+    permissions: {}
+    runs-on: ubuntu-26.04
+    steps:
+      - run: test "${{ needs.check.result }}" = success
+
   publish:
     if: github.event_name != 'pull_request'
     permissions:
