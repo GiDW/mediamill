@@ -1,13 +1,13 @@
 #!/usr/bin/env zsh
-# mediamill — batch image → optimised JPEG (vips+mozjpeg), gif → mp4 (ffmpeg), rest copied.
+# mediamill — batch image → optimised JPEG (vips+mozjpeg), JPEG XL or AVIF; gif → mp4 (ffmpeg),
+# rest copied.
 # Usage:
-#   mediamill [--jobs N] [--force] <input-dir> <output-dir>
-#   mediamill <image-or-gif> [<output-file>]      (no output: <stem>.jpg|.mp4 in cwd, never overwrites)
-#   mediamill [--jobs N] [--force] [--extract-only] <file.pdf> [<out-dir>]
+#   mediamill [--jobs N] [--force] [--format jpg|jxl|avif] <input-dir> <output-dir>
+#   mediamill [--format F] <image-or-gif> [<output-file>]  (no output: <stem>.<F>|.mp4 in cwd, never overwrites)
+#   mediamill [--jobs N] [--force] [--format F] [--extract-only] <file.pdf> [<out-dir>]
 set -u
 readonly here="${0:A:h}" self="${0:A}"
-export MM_PIC_EXT="${MM_PIC_EXT:-jpg}" MM_VID_EXT="${MM_VID_EXT:-mp4}"
-export MM_VIPS_OPTS="${MM_VIPS_OPTS:-[Q=75,keep=none,trellis-quant,interlace,optimize-coding,optimize-scans,quant-table=3,subsample_mode=on]}"
+export MM_VID_EXT="${MM_VID_EXT:-mp4}"
 export MM_VIPS="${MM_VIPS:-vips}" MM_FFMPEG="${MM_FFMPEG:-ffmpeg}"
 export MM_PDFIMAGES="${MM_PDFIMAGES:-pdfimages}"
 export MM_FORCE="${MM_FORCE:-0}"
@@ -15,9 +15,9 @@ readonly worker="${MM_WORKER:-${here}/mediamill-worker}"
 source "${here}/mediamill-lib.zsh" || exit 1
 
 usage() {
-  print -u2 -- "usage: mediamill [--jobs N] [--force] [--quiet] <input-dir> <output-dir>"
-  print -u2 -- "       mediamill [--force] [--quiet] <image|gif> [<output-file>]"
-  print -u2 -- "       mediamill [--jobs N] [--force] [--quiet] [--extract-only] <file.pdf> [<out-dir>]"
+  print -u2 -- "usage: mediamill [--jobs N] [--force] [--quiet] [--format jpg|jxl|avif] <input-dir> <output-dir>"
+  print -u2 -- "       mediamill [--force] [--quiet] [--format jpg|jxl|avif] <image|gif> [<output-file>]"
+  print -u2 -- "       mediamill [--jobs N] [--force] [--quiet] [--format jpg|jxl|avif] [--extract-only] <file.pdf> [<out-dir>]"
   exit 1
 }
 ncpu() { nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || print 4 }
@@ -25,10 +25,13 @@ ncpu() { nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || print 4 }
 jobs="${MM_JOBS:-$(ncpu)}"
 quiet=0
 extract_only=0
+format="" format_opt=0
 while (( $# )) && [[ "$1" == --* ]]; do
   case "$1" in
     --jobs) [[ "${2:-}" == <1-> ]] || usage; jobs="$2"; shift 2 ;;
     --jobs=*) jobs="${1#--jobs=}"; [[ "$jobs" == <1-> ]] || usage; shift ;;
+    --format) (( $# >= 2 )) || usage; format="$2"; format_opt=1; shift 2 ;;
+    --format=*) format="${1#--format=}"; format_opt=1; shift ;;
     --force) export MM_FORCE=1; shift ;;
     --quiet) quiet=1; shift ;;
     --extract-only) extract_only=1; shift ;;
@@ -38,6 +41,14 @@ while (( $# )) && [[ "$1" == --* ]]; do
 done
 # --jobs is checked above; this catches a bad MM_JOBS (0 would mean unlimited to GNU xargs -P).
 [[ "$jobs" == <1-> ]] || { print -u2 -r -- "MM_JOBS must be a positive integer, got: $jobs"; usage }
+# --format wins over MM_FORMAT; exported, the worker and the PDF recursion pick it up.
+if (( format_opt )); then
+  (( ${mm_formats[(Ie)$format]} )) || usage
+else
+  format="${MM_FORMAT:-jpg}"
+  (( ${mm_formats[(Ie)$format]} )) || { print -u2 -r -- "MM_FORMAT must be one of ${(j:, :)mm_formats}, got: $format"; usage }
+fi
+export MM_FORMAT="$format"
 (( $# >= 1 && $# <= 2 )) || usage
 input="$1"; output="${2:-}"
 # --quiet: strict — nothing on stdout, for this script and the workers that inherit it.
@@ -96,10 +107,14 @@ if [[ -f "$input" ]]; then
   [[ -d "$output" ]] && { print -u2 -- "output is a directory; give a file name"; exit 1 }
   mm_kind "$ext_lower"
   case "$REPLY" in
-    image) out_ext="$MM_PIC_EXT" ;;
-    video) out_ext="$MM_VID_EXT" ;;
+    image) out_ext="$MM_FORMAT"; ok_ext=("$MM_FORMAT"); [[ "$MM_FORMAT" == jpg ]] && ok_ext+=(jpeg) ;;
+    video) out_ext="$MM_VID_EXT"; ok_ext=() ;;
     *) print -u2 -- "unsupported file type: .$ext_lower"; exit 1 ;;
   esac
+  # The bytes follow --format, so an explicit name must carry that format's extension.
+  if [[ -n "$output" ]] && (( ${#ok_ext} && ! ${ok_ext[(Ie)${${output:e}:l}]} )); then
+    print -u2 -r -- "output must end in .${out_ext} for --format ${MM_FORMAT}: $output"; exit 1
+  fi
   if [[ -z "$output" ]]; then
     stem="${input:t:r}"; output="${stem}.${out_ext}"; n=1
     while [[ -e "$output" ]]; do n=$((n+1)); output="${stem}_${n}.${out_ext}"; done

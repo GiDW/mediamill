@@ -17,7 +17,7 @@ chmod +x "$w/stub/vips" "$w/stub/ffmpeg"
 export MM_VIPS="$w/stub/vips" MM_FFMPEG="$w/stub/ffmpeg"
 
 # run <case>: converts $w/<case>/in into $w/<case>/out; rc in $rc, stderr in $w/<case>/err
-run() { "$mm" --jobs 2 "$w/$1/in" "$w/$1/out" >"$w/$1/log" 2>"$w/$1/err"; rc=$? }
+run() { local c="$1"; shift; "$mm" --jobs 2 "$@" "$w/$c/in" "$w/$c/out" >"$w/$c/log" 2>"$w/$c/err"; rc=$? }
 mk() { local c="$1"; shift; local f; for f; do mkdir -p -- "$w/$c/in/${f:h}"; print -r -- "$f" > "$w/$c/in/$f"; done }
 
 mk ext IMG_0001.jpeg IMG_0001.png
@@ -61,5 +61,17 @@ assert "clean tree: exit 0"                    '[[ $rc -eq 0 ]]'
 assert "clean tree: every target written"      '[[ -s "$w/ok/out/p/IMG.jpg" && -s "$w/ok/out/q/IMG.jpg" && -s "$w/ok/out/IMG.jpg" && -s "$w/ok/out/IMG.txt" && -s "$w/ok/out/anim.mp4" ]]'
 assert "clean tree: no _2 names"               '[[ -z "$(find "$w/ok/out" -name "*_2*")" ]]'
 assert "clean tree: nothing on stderr"         '[[ ! -s "$w/ok/err" ]]'
+
+# --format: the target extension follows the format, so an existing .avif (copied as is) only
+# clashes with a same-stem image when the output format is avif
+mk fmt x.png x.avif
+run fmt --format avif
+assert "avif: x.png + x.avif: exit 3"          '[[ $rc -eq 3 ]]'
+assert "avif: CLASH line names both"           'grep -qxF "CLASH x.avif <- x.avif, x.png" "$w/fmt/err"'
+run fmt
+assert "jpg: x.png + x.avif: no clash"         '[[ $rc -eq 0 && -f "$w/fmt/out/x.jpg" && -f "$w/fmt/out/x.avif" ]]'
+mk jxl a.png
+run jxl --format jxl
+assert "jxl: a.png -> a.jxl"                   '[[ $rc -eq 0 && -f "$w/jxl/out/a.jxl" && ! -e "$w/jxl/out/a.jpg" ]]'
 
 print "failures: $fails"; exit $(( fails > 0 ))

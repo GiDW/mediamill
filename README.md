@@ -1,6 +1,6 @@
 # mediamill
 
-Recursively converts a tree of images to optimised JPEG (libvips with mozjpeg) and animated GIFs to MP4 (ffmpeg), copying every other file unchanged. Directory structure is mirrored, files are processed in parallel, and re-runs only touch what changed.
+Recursively converts a tree of images to optimised JPEG (libvips with mozjpeg), or on request to JPEG XL or AVIF, and animated GIFs to MP4 (ffmpeg), copying every other file unchanged. Directory structure is mirrored, files are processed in parallel, and re-runs only touch what changed.
 
 It runs as a container, so a Mac and a Linux server produce byte-identical output from one image: `ghcr.io/gidw/mediamill` (linux/amd64 and linux/arm64).
 
@@ -8,11 +8,15 @@ It runs as a container, so a Mac and a Linux server produce byte-identical outpu
 
 | Input extension (any case) | Result |
 |---|---|
-| `jpg` `jpeg` `jp2` `jfif` `pjpeg` `pjp` `png` `webp` `heic` | `<name>.jpg`, encoded with `Q=75, keep=none, trellis-quant, interlace, optimize-coding, optimize-scans, quant-table=3, subsample_mode=on`; EXIF orientation is applied to the pixels and an embedded colour profile (Display P3, CMYK) is converted to sRGB |
+| `jpg` `jpeg` `jp2` `jfif` `pjpeg` `pjp` `png` `webp` `heic` | `<name>.jpg` (default), encoded with `Q=75, keep=none, trellis-quant, interlace, optimize-coding, optimize-scans, quant-table=3, subsample_mode=on`; EXIF orientation is applied to the pixels, an embedded colour profile (Display P3, CMYK) is converted to sRGB and transparency is flattened |
+| the same, with `--format jxl` | `<name>.jxl` (libjxl, `Q=75`, default effort) |
+| the same, with `--format avif` | `<name>.avif` (AV1 via aom, `Q=50`, 4:4:4, 8-bit, `effort=6`) |
 | `gif` | `<name>.mp4`, `libx264 -crf 24 -preset slow`, `yuv420p`, even dimensions, `faststart` |
-| anything else | copied as is |
+| anything else (including existing `avif` and `jxl` files) | copied as is |
 
-Every output name must come from exactly one source. Before converting anything, mediamill checks the whole tree for sources that would land on the same name, such as `IMG_0001.HEIC` + `IMG_0001.PNG` (both `IMG_0001.jpg`), `clip.gif` + `clip.mp4`, or `photo.png` next to a folder called `photo.jpg`. Names are compared case-insensitively, so `Pic.png` + `pic.webp` counts too. If there are clashes it prints one `CLASH` line per output name, writes nothing and exits with `3`; rename the sources and run again:
+With `--format jxl` or `avif`, EXIF orientation is still applied, but the colour space is kept: a Display P3 photo stays P3, with its ICC profile embedded, and transparency is kept. CMYK sources are still converted to sRGB. Every other piece of metadata (EXIF, GPS, XMP, IPTC) is removed in all formats. HDR is not kept: an iPhone HDR photo comes out as its SDR base image (still P3), because the HEIC gain map is dropped. AVIF encoding is much slower than JPEG.
+
+Every output name must come from exactly one source. Before converting anything, mediamill checks the whole tree for sources that would land on the same name, such as `IMG_0001.HEIC` + `IMG_0001.PNG` (both `IMG_0001.jpg`), `clip.gif` + `clip.mp4`, or `photo.png` next to a folder called `photo.jpg`, or with `--format avif`, `x.png` next to an `x.avif` that would be copied. Names are compared case-insensitively, so `Pic.png` + `pic.webp` counts too. If there are clashes it prints one `CLASH` line per output name, writes nothing and exits with `3`; rename the sources and run again:
 
 ```text
 CLASH IMG_0001.jpg <- IMG_0001.HEIC, IMG_0001.PNG
@@ -68,9 +72,9 @@ Old images are not removed by a pull. Reclaim the space with `podman image prune
 ## Usage
 
 ```
-mediamill [--jobs N] [--force] [--quiet] <input-dir> <output-dir>
-mediamill [--force] [--quiet] <image|gif> [<output-file>]
-mediamill [--jobs N] [--force] [--quiet] [--extract-only] <file.pdf> [<out-dir>]
+mediamill [--jobs N] [--force] [--quiet] [--format jpg|jxl|avif] <input-dir> <output-dir>
+mediamill [--force] [--quiet] [--format jpg|jxl|avif] <image|gif> [<output-file>]
+mediamill [--jobs N] [--force] [--quiet] [--format jpg|jxl|avif] [--extract-only] <file.pdf> [<out-dir>]
 mediamill --help
 ```
 
@@ -91,6 +95,13 @@ Convert a single file to an explicit path (parent directories are created):
 
 ```sh
 mediamill ~/Downloads/funny.gif ~/Videos/clips/funny.mp4
+```
+
+Convert to AVIF or JPEG XL instead of JPEG. An explicit output file must have the format's extension (`.jpg` or `.jpeg` for `jpg`); otherwise mediamill exits with `1`:
+
+```sh
+mediamill --format avif ~/Pictures/2026-trip ~/Pictures/2026-trip-avif
+mediamill --format jxl ~/Pictures/IMG_0042.heic ~/Desktop/IMG_0042.jxl
 ```
 
 Limit parallelism, for example on a shared machine:
@@ -130,13 +141,15 @@ Files are written to a temporary name and renamed when complete, so a killed run
 | `--jobs N` | files converted in parallel | number of CPUs visible to the container |
 | `--force` | rewrite targets even when up to date | off |
 | `--quiet` | print nothing on stdout; failures still go to stderr and the exit code is unchanged | off |
+| `--format jpg\|jxl\|avif` | image output format | `jpg` |
 | `--extract-only` | PDF input only: stop after extraction and rename, do not convert | off |
 | `MM_JOBS=N` | same as `--jobs`, for the wrapper | |
+| `MM_FORMAT=F` | same as `--format`, for the wrapper; `--format` wins | |
 | `MEDIAMILL_IMAGE` | image the wrapper runs | `ghcr.io/gidw/mediamill:latest` |
 
 Exit codes: `0` success, `1` usage or input error, `2` finished but one or more files failed (see the `FAIL` lines), `3` output name clashes, nothing converted (see the `CLASH` lines).
 
-Output lines: `JPG`, `MP4`, `CP` and `SKIP` per file on stdout, `RAW` per file with `--extract-only`, and `PDF <file>: <n> images` after a PDF; `FAIL <file>: <reason>` and `CLASH <output> <- <sources>` on stderr.
+Output lines: `JPG` (or `JXL`, `AVIF`), `MP4`, `CP` and `SKIP` per file on stdout, `RAW` per file with `--extract-only`, and `PDF <file>: <n> images` after a PDF; `FAIL <file>: <reason>` and `CLASH <output> <- <sources>` on stderr.
 
 ## Platform notes
 
@@ -166,6 +179,7 @@ test/worker.test.sh                                # per-file worker: naming, en
 test/clash.test.sh                                 # clash preflight (vips/ffmpeg stubbed, runs anywhere)
 test/cli.test.sh                                   # option and MM_JOBS validation (no media tools needed)
 test/pdf.test.sh                                   # PDF input flow
+test/single.test.sh                                # single-file mode: output names per --format
 test/wrapper.test.sh                               # host wrapper: the podman command it builds (podman stubbed)
 test/syntax.test.sh                                # zsh -n on every script
 ```

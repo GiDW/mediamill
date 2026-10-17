@@ -41,6 +41,12 @@ assert "extract-only: status lines"           'grep -q "^RAW 0000.png$" out5.txt
 "$mm" --extract-only "$pdf" "$w/raw" >/dev/null 2>&1; rc=$?
 assert "extract-only re-run overwrites, exit 0" '[[ $rc -eq 0 && -s "$w/raw/0000.png" ]]'
 
+# --format jxl: extracted images become 0000.jxl, 0001.jxl
+"$mm" --format jxl "$pdf" "$w/jxl" >"$w/outj.txt" 2>&1; rc=$?
+assert "--format jxl: two .jxl"               '[[ $rc -eq 0 && -s "$w/jxl/0000.jxl" && -s "$w/jxl/0001.jxl" && "$(ls "$w/jxl" | wc -l | tr -d " ")" == 2 ]]'
+assert "--format jxl: outputs are jpeg xl"    '[[ "$(vipsheader -f vips-loader "$w/jxl/0000.jxl")" == jxlload ]]'
+assert "--format jxl: JXL status lines"       'grep -q "^JXL 0000.png$" outj.txt && grep -q "^JXL 0001.jpg$" outj.txt'
+
 # --quiet: nothing on stdout
 q="$("$mm" --quiet --force "$pdf" "$w/quiet" 2>&1)"; rc=$?
 assert "--quiet silent, exit 0"               '[[ $rc -eq 0 && -z "$q" ]]'

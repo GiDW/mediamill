@@ -25,5 +25,24 @@ for bad in 0 abc; do
   run -- --jobs "$bad"
   assert "--jobs $bad: usage error (exit 1)"    '[[ $rc -eq 1 ]] && grep -q "^usage:" "$w/err"'
 done
+# --format: lowercase jpg|jxl|avif only; with no value it swallows the input and still fails
+for bad in bmp JPG ""; do
+  run -- --format "$bad"
+  assert "--format '$bad': usage error (exit 1)" '[[ $rc -eq 1 ]] && grep -q "^usage:" "$w/err"'
+done
+run -- --format
+assert "--format without a value: usage error" '[[ $rc -eq 1 ]] && grep -q "^usage:" "$w/err"'
+"$mm" --format >/dev/null 2>"$w/err"; rc=$?
+assert "--format as the last argument: usage error" '[[ $rc -eq 1 ]] && grep -q "^usage:" "$w/err"'
+run -- --format=jxl
+assert "--format=jxl accepted"                  '[[ $rc -eq 0 ]]'
+run -- --format avif
+assert "--format avif accepted"                 '[[ $rc -eq 0 ]]'
+run MM_FORMAT=webp --
+assert "MM_FORMAT=webp: usage error (exit 1)"   '[[ $rc -eq 1 ]] && grep -q "^MM_FORMAT must be one of jpg, jxl, avif, got: webp" "$w/err"'
+run MM_FORMAT=webp -- --format avif
+assert "valid --format overrides bad MM_FORMAT" '[[ $rc -eq 0 ]]'
+run MM_FORMAT=jxl --
+assert "MM_FORMAT=jxl accepted"                 '[[ $rc -eq 0 ]]'
 
 print "failures: $fails"; exit $(( fails > 0 ))
