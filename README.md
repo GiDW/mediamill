@@ -9,12 +9,12 @@ It runs as a container, so a Mac and a Linux server produce byte-identical outpu
 | Input extension (any case) | Result |
 |---|---|
 | `jpg` `jpeg` `jp2` `jfif` `pjpeg` `pjp` `png` `webp` `heic` | `<name>.jpg` (default), encoded with `Q=75, keep=none, trellis-quant, interlace, optimize-coding, optimize-scans, quant-table=3, subsample_mode=on`; EXIF orientation is applied to the pixels, an embedded colour profile (Display P3, CMYK) is converted to sRGB and transparency is flattened |
-| the same, with `--format jxl` | `<name>.jxl` (libjxl, `Q=75`, default effort) |
-| the same, with `--format avif` | `<name>.avif` (AV1 via aom, `Q=50`, 4:4:4, 8-bit, `effort=6`) |
+| the same, with `--format jxl` | `<name>.jxl` (libjxl, `Q=80`, default effort) |
+| the same, with `--format avif` | `<name>.avif` (AV1 via aom, `Q=55`, 4:4:4, 8-bit, `effort=4`) |
 | `gif` | `<name>.mp4`, `libx264 -crf 24 -preset slow`, `yuv420p`, even dimensions, `faststart` |
 | anything else (including existing `avif` and `jxl` files) | copied as is |
 
-With `--format jxl` or `avif`, EXIF orientation is still applied, but the colour space is kept: a Display P3 photo stays P3, with its ICC profile embedded, and transparency is kept. CMYK sources are still converted to sRGB. Every other piece of metadata (EXIF, GPS, XMP, IPTC) is removed in all formats. HDR is not kept: an iPhone HDR photo comes out as its SDR base image (still P3), because the HEIC gain map is dropped. AVIF encoding is much slower than JPEG.
+With `--format jxl` or `avif`, EXIF orientation is still applied, but the colour space is kept: a Display P3 photo stays P3, with its ICC profile embedded, and transparency is kept. CMYK sources are still converted to sRGB. Every other piece of metadata (EXIF, GPS, XMP, IPTC) is removed in all formats. HDR is not kept: an iPhone HDR photo comes out as its SDR base image (still P3), because the HEIC gain map is dropped. AVIF encoding is much slower than JPEG (about 13 s of CPU for a 12 MP photo, against under 1 s for JPEG).
 
 Every output name must come from exactly one source. Before converting anything, mediamill checks the whole tree for sources that would land on the same name, such as `IMG_0001.HEIC` + `IMG_0001.PNG` (both `IMG_0001.jpg`), `clip.gif` + `clip.mp4`, or `photo.png` next to a folder called `photo.jpg`, or with `--format avif`, `x.png` next to an `x.avif` that would be copied. Names are compared case-insensitively, so `Pic.png` + `pic.webp` counts too. If there are clashes it prints one `CLASH` line per output name, writes nothing and exits with `3`; rename the sources and run again:
 

@@ -11,8 +11,8 @@ typeset -ga mm_formats=(jpg jxl avif)
 mm_vips_opts() {
   case "$1" in
     jpg)  REPLY='[Q=75,keep=none,trellis-quant,interlace,optimize-coding,optimize-scans,quant-table=3,subsample_mode=on]' ;;
-    jxl)  REPLY='[Q=75,keep=icc]' ;;
-    avif) REPLY='[Q=50,keep=icc,bitdepth=8,subsample_mode=off,effort=6,encoder=aom]' ;;
+    jxl)  REPLY='[Q=80,keep=icc]' ;;
+    avif) REPLY='[Q=55,keep=icc,bitdepth=8,subsample_mode=off,effort=4,encoder=aom]' ;;
   esac
 }
 
