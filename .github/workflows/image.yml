@@ -87,6 +87,11 @@ jobs:
           docker run --rm -v "$PWD/test/fixtures/p3.jpg:/in/p3.jpg:ro" -v /tmp/r:/out "$ref" --format avif /in/p3.jpg /out/p3.avif
           test "$(docker run --rm -v /tmp/r:/r:ro --entrypoint vipsheader "$ref" -f vips-loader /r/p3.jxl)" = jxlload
           test "$(docker run --rm -v /tmp/r:/r:ro --entrypoint vipsheader "$ref" -f heif-compression /r/p3.avif)" = av1
+          # Source in the working directory: the wrapper then mounts that one directory as /in:ro and /out
+          mkdir -p /tmp/s && chmod 777 /tmp/s && cp test/fixtures/tiny.heic test/fixtures/tiny.pdf /tmp/s/
+          docker run --rm -v /tmp/s:/in:ro -v /tmp/s:/out -w /out "$ref" --format avif /in/tiny.heic
+          docker run --rm -v /tmp/s:/in:ro -v /tmp/s:/out -w /out "$ref" /in/tiny.pdf
+          test -s /tmp/s/tiny.avif && test -s /tmp/s/tiny/0000.jpg
           docker run --rm --entrypoint sh "$ref" -c 'ldd /usr/local/lib/libvips.so.42 | grep -q "libjpeg.so.62 => /usr/local/lib/"'
       - name: Tests (repo scripts with the image's tools, as the container user)
         run: |
