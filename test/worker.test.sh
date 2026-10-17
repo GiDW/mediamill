@@ -2,6 +2,7 @@
 # Worker assertions. Requires vips, vipsheader + ffmpeg on PATH (all in the image). Usage: test/worker.test.sh
 set -u
 zmodload zsh/stat   # zstat: portable mtime without coreutils/BSD stat differences
+zmodload zsh/mathfunc   # abs() for the pixel tolerance checks
 here="${0:A:h}"; worker="$here/../libexec/mediamill-worker"
 w="$(mktemp -d)"; trap 'rm -rf -- "$w"' EXIT
 in="$w/in"; out="$w/out"; mkdir -p "$in/d" "$out/d"
@@ -16,6 +17,9 @@ cp "$here/fixtures/anim.gif" "$in/d/anim.gif"   # committed: the image's libvips
 vips black "$in/d/slash.png" 64 64
 printf 'x' > "$in/d/notes.txt"
 printf 'garbage' > "$in/d/broken.jpg"
+vips black "$in/d/alpha.png" 64 64 --bands 4                                   # RGBA
+vips black "$w/k.v" 64 64 --bands 3 && vips cast "$w/k.v" "$in/d/deep.png" ushort # 16-bit RGB
+vips black "$in/d/grey.png" 64 64                                              # 1-band
 # -nt compares whole seconds: make sure every first-run target is strictly newer than its source
 sleep 1
 
@@ -48,6 +52,43 @@ vips copy "$in/d/noise.png" "$w/plain.jpg[Q=75,keep=none,interlace]"
 "$worker" "$in/d/noise.png" >/dev/null
 assert "progressive jpeg (interlace)"        '[[ " $(od -An -v -tx1 "$out/d/noise.jpg" | tr -s " \n" "  ") " == *" ff c2 "* ]]'
 assert "mozjpeg opts: < 90% of a plain progressive Q=75" '(( $(wc -c < "$out/d/noise.jpg") * 10 < $(wc -c < "$w/plain.jpg") * 9 ))'
+# The default format must stay byte-identical to the encode mediamill has always done.
+vips thumbnail "$in/d/noise.png" "$w/ref.jpg[Q=75,keep=none,trellis-quant,interlace,optimize-coding,optimize-scans,quant-table=3,subsample_mode=on]" 10000000 --size down --export-profile srgb
+assert "default jpg byte-identical to the historic encode" 'cmp -s "$out/d/noise.jpg" "$w/ref.jpg"'
+"$worker" "$in/d/alpha.png" >/dev/null
+assert "jpg drops alpha (3 bands)"           '[[ "$(vipsheader -f bands "$out/d/alpha.jpg")" == 3 ]]'
+
+# JPEG XL and AVIF: same pipeline, but the colour profile and alpha are kept (no sRGB export).
+# assert evals at once, so $fmt/$o in the single-quoted checks are this iteration's values.
+typeset -A loader=(jxl jxlload avif heifload)
+for fmt in jxl avif; do
+  o="$w/out-$fmt"; mkdir -p "$o/d" "$w/q-$fmt/d"
+  conv() { MM_FORMAT=$fmt MM_OUT_ROOT="$o" "$worker" "$in/d/$1" }
+  conv a.png >"$w/line" 2>/dev/null
+  assert "$fmt: png -> .$fmt"                  '[[ -s "$o/d/a.$fmt" ]]'
+  assert "$fmt: ${(U)fmt} status line"         'grep -qx "${(U)fmt} d/a.png" "$w/line"'
+  assert "$fmt: output loader ${loader[$fmt]}" '[[ "$(vipsheader -f vips-loader "$o/d/a.$fmt" 2>/dev/null)" == $loader[$fmt] ]]'
+  [[ $fmt == avif ]] && assert "avif: av1 compression" '[[ "$(vipsheader -f heif-compression "$o/d/a.avif" 2>/dev/null)" == av1 ]]'
+  conv rot6.jpg >/dev/null 2>&1
+  assert "$fmt: exif orientation applied (16x32)" '[[ "$(vipsheader -f width "$o/d/rot6.$fmt")x$(vipsheader -f height "$o/d/rot6.$fmt")" == 16x32 ]] 2>/dev/null'
+  assert "$fmt: no exif/xmp metadata"          '[[ -s "$o/d/rot6.$fmt" ]] && ! vipsheader -a "$o/d/rot6.$fmt" | grep -qE "^(exif|xmp)-data:"'
+  # Display P3 red stays P3: the profile is embedded and the P3-encoded pixel (234,51,35) survives
+  conv p3.jpg >/dev/null 2>&1
+  assert "$fmt: icc profile embedded"          'vipsheader -a "$o/d/p3.$fmt" 2>/dev/null | grep -q "^icc-profile-data:"'
+  px=(${=$(vips getpoint "$o/d/p3.$fmt" 8 8 2>/dev/null)})
+  assert "$fmt: p3 pixel kept (234,51,35 +-6)" '(( ${#px} >= 3 && abs(px[1]-234) <= 6 && abs(px[2]-51) <= 6 && abs(px[3]-35) <= 6 ))'
+  conv cmyk.jpg >/dev/null 2>&1
+  assert "$fmt: cmyk -> 3-band"                '[[ "$(vipsheader -f bands "$o/d/cmyk.$fmt" 2>/dev/null)" == 3 ]]'
+  conv alpha.png >/dev/null 2>&1
+  assert "$fmt: alpha kept (4 bands)"          '[[ "$(vipsheader -f bands "$o/d/alpha.$fmt" 2>/dev/null)" == 4 ]]'
+  conv deep.png >/dev/null 2>&1; rc=$?
+  assert "$fmt: 16-bit png converts"           '[[ $rc -eq 0 && -s "$o/d/deep.$fmt" ]]'
+  conv grey.png >/dev/null 2>&1; rc=$?
+  assert "$fmt: greyscale png converts"        '[[ $rc -eq 0 ]] && vipsheader "$o/d/grey.$fmt" >/dev/null 2>&1'
+  conv noise.png >/dev/null 2>&1
+  MM_FORMAT=$fmt MM_OUT_ROOT="$w/q-$fmt" MM_VIPS_OPTS='[Q=20,keep=icc]' "$worker" "$in/d/noise.png" >/dev/null 2>&1
+  assert "$fmt: MM_VIPS_OPTS reaches the encoder (Q=20 smaller)" '(( $(wc -c < "$w/q-$fmt/d/noise.$fmt") < $(wc -c < "$o/d/noise.$fmt") ))' 2>/dev/null
+done
 "$worker" "$in/d/UP.PNG" >/dev/null;        assert "uppercase ext, stem kept" '[[ -s "$out/d/UP.jpg" ]]'
 # clashes are the dispatcher's job (preflight): the worker never renames, even next to a same-stem .jpg
 "$worker" "$in/d/coll.png" >/dev/null;      assert "no _2 rename in worker"   '[[ -s "$out/d/coll.jpg" && ! -e "$out/d/coll_2.jpg" ]]'
