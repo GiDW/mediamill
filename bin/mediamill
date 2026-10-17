@@ -2,16 +2,16 @@
 # Host wrapper: runs ghcr.io/gidw/mediamill via podman with the right mounts. Put this file on
 # your PATH (symlink it into ~/.local/bin, or add this directory); it runs under zsh whatever
 # shell you call it from.
-# Usage identical to the tool: mediamill [--jobs N] [--force] [--quiet] [--format jpg|jxl|avif] [--extract-only] <input> [output]
+# Usage identical to the tool: mediamill [--jobs N] [--force] [--quiet] [--format jpg|jxl|avif] [--encoder-opts LIST] [--extract-only] <input> [output]
 # macOS: paths must live under /Users, /private or /var/folders (podman machine shares only those).
 set -u
 image="${MEDIAMILL_IMAGE:-ghcr.io/gidw/mediamill:latest}"
 typeset -a opts mounts run
 while (( $# )) && [[ "$1" == --* ]]; do
-  opts+=("$1"); [[ "$1" == (--jobs|--format) && $# -ge 2 ]] && { opts+=("$2"); shift }; shift
+  opts+=("$1"); [[ "$1" == (--jobs|--format|--encoder-opts) && $# -ge 2 ]] && { opts+=("$2"); shift }; shift
 done
 (( ${opts[(I)--help]} )) && exec podman run --rm "$image" --help
-(( $# >= 1 && $# <= 2 )) || { print -u2 "usage: mediamill [--jobs N] [--force] [--quiet] [--format jpg|jxl|avif] [--extract-only] <input> [output]"; exit 1 }
+(( $# >= 1 && $# <= 2 )) || { print -u2 "usage: mediamill [--jobs N] [--force] [--quiet] [--format jpg|jxl|avif] [--encoder-opts LIST] [--extract-only] <input> [output]"; exit 1 }
 input="$1" output="${2:-}"
 [[ -e "$input" ]] || { print -u2 -r -- "mediamill: no such input: $input"; exit 1 }
 in_abs="${input:A}"
@@ -35,5 +35,6 @@ run=(podman run --rm --init --userns=keep-id:uid=65532,gid=65532 -w /out)
 [[ -t 0 && -t 1 ]] && run+=(-it)
 [[ -n "${MM_JOBS:-}" ]] && run+=(-e MM_JOBS)
 [[ -n "${MM_FORMAT:-}" ]] && run+=(-e MM_FORMAT)
+[[ -n "${MM_ENCODER_OPTS:-}" ]] && run+=(-e MM_ENCODER_OPTS)
 # exec: podman replaces this script, so Ctrl-C and the exit code go straight to and from it.
 exec "${run[@]}" "${mounts[@]}" "$image" "${opts[@]}" "$ctr_in" ${ctr_out:+"$ctr_out"}

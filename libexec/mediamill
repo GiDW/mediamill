@@ -2,7 +2,7 @@
 # mediamill — batch image → optimised JPEG (vips+mozjpeg), JPEG XL or AVIF; gif → mp4 (ffmpeg),
 # rest copied.
 # Usage:
-#   mediamill [--jobs N] [--force] [--format jpg|jxl|avif] <input-dir> <output-dir>
+#   mediamill [--jobs N] [--force] [--format jpg|jxl|avif] [--encoder-opts LIST] <input-dir> <output-dir>
 #   mediamill [--format F] <image-or-gif> [<output-file>]  (no output: <stem>.<F>|.mp4 in cwd, never overwrites)
 #   mediamill [--jobs N] [--force] [--format F] [--extract-only] <file.pdf> [<out-dir>]
 set -u
@@ -15,9 +15,10 @@ readonly worker="${MM_WORKER:-${here}/mediamill-worker}"
 source "${here}/mediamill-lib.zsh" || exit 1
 
 usage() {
-  print -u2 -- "usage: mediamill [--jobs N] [--force] [--quiet] [--format jpg|jxl|avif] <input-dir> <output-dir>"
-  print -u2 -- "       mediamill [--force] [--quiet] [--format jpg|jxl|avif] <image|gif> [<output-file>]"
-  print -u2 -- "       mediamill [--jobs N] [--force] [--quiet] [--format jpg|jxl|avif] [--extract-only] <file.pdf> [<out-dir>]"
+  print -u2 -- "usage: mediamill [--jobs N] [--force] [--quiet] [--format jpg|jxl|avif] [--encoder-opts LIST] <input-dir> <output-dir>"
+  print -u2 -- "       mediamill [--force] [--quiet] [--format jpg|jxl|avif] [--encoder-opts LIST] <image|gif> [<output-file>]"
+  print -u2 -- "       mediamill [--jobs N] [--force] [--quiet] [--format jpg|jxl|avif] [--encoder-opts LIST] [--extract-only] <file.pdf> [<out-dir>]"
+  print -u2 -- "       LIST: encoder settings that replace the defaults, e.g. Q=65,effort=6"
   exit 1
 }
 ncpu() { nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || print 4 }
@@ -26,12 +27,15 @@ jobs="${MM_JOBS:-$(ncpu)}"
 quiet=0
 extract_only=0
 format="" format_opt=0
+enc="" enc_opt=0
 while (( $# )) && [[ "$1" == --* ]]; do
   case "$1" in
     --jobs) [[ "${2:-}" == <1-> ]] || usage; jobs="$2"; shift 2 ;;
     --jobs=*) jobs="${1#--jobs=}"; [[ "$jobs" == <1-> ]] || usage; shift ;;
     --format) (( $# >= 2 )) || usage; format="$2"; format_opt=1; shift 2 ;;
     --format=*) format="${1#--format=}"; format_opt=1; shift ;;
+    --encoder-opts) (( $# >= 2 )) || usage; enc="$2"; enc_opt=1; shift 2 ;;
+    --encoder-opts=*) enc="${1#--encoder-opts=}"; enc_opt=1; shift ;;
     --force) export MM_FORCE=1; shift ;;
     --quiet) quiet=1; shift ;;
     --extract-only) extract_only=1; shift ;;
@@ -49,6 +53,15 @@ else
   (( ${mm_formats[(Ie)$format]} )) || { print -u2 -r -- "MM_FORMAT must be one of ${(j:, :)mm_formats}, got: $format"; usage }
 fi
 export MM_FORMAT="$format"
+# Same precedence for the encoder settings; the worker merges them into the format's defaults.
+if (( enc_opt )); then
+  mm_valid_opts "$enc" || usage
+else
+  enc="${MM_ENCODER_OPTS:-}"
+  [[ -z "$enc" ]] || mm_valid_opts "$enc" || {
+    print -u2 -r -- "MM_ENCODER_OPTS must be a comma-separated list of name or name=value, got: $enc"; usage }
+fi
+export MM_ENCODER_OPTS="$enc"
 (( $# >= 1 && $# <= 2 )) || usage
 input="$1"; output="${2:-}"
 # --quiet: strict — nothing on stdout, for this script and the workers that inherit it.
@@ -56,6 +69,18 @@ input="$1"; output="${2:-}"
 (( quiet )) && exec >/dev/null
 [[ -e "$input" ]] || { print -u2 -- "input does not exist: $input"; exit 1 }
 for t in "$MM_VIPS" "$MM_FFMPEG"; do command -v -- "$t" >/dev/null || { print -u2 -- "missing tool: $t"; exit 1 } done
+# A setting vips does not know would fail every single file. Encode a tiny image with the merged
+# settings once instead, and stop before anything is written.
+if [[ -n "$MM_ENCODER_OPTS" ]]; then
+  mm_vips_opts "$MM_FORMAT"; mm_merge_opts "$REPLY" "$MM_ENCODER_OPTS"
+  probe="$(mktemp -d "${TMPDIR:-/tmp}/mm-probe.XXXXXX")" || exit 1
+  probe_err="$("$MM_VIPS" black "$probe/p.${MM_FORMAT}${REPLY}" 8 8 2>&1)"; rc=$?
+  rm -rf -- "$probe"
+  if (( rc != 0 )); then
+    print -u2 -r -- "mediamill: invalid --encoder-opts for ${MM_FORMAT}: $(print -r -- "$probe_err" | head -c 300 | tr '\n' ' ')"
+    exit 1
+  fi
+fi
 
 # ---- pdf input --------------------------------------------------------------
 # Only when the INPUT ARGUMENT is a pdf. Extract embedded images at native resolution,

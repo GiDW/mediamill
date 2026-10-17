@@ -12,7 +12,7 @@ print -r -- '#!/bin/sh
 : > "$STUB_ARGS"; for a in "$@"; do printf "%s\n" "$a" >> "$STUB_ARGS"; done; exit "${STUB_RC:-0}"' > "$w/stub/podman"
 chmod +x "$w/stub/podman"
 export PATH="$w/stub:$PATH" STUB_ARGS="$w/args"
-unset MEDIAMILL_IMAGE MM_JOBS MM_FORMAT
+unset MEDIAMILL_IMAGE MM_JOBS MM_FORMAT MM_ENCODER_OPTS
 
 # run [args...]: from $w/cwd, stdin not a terminal (so no -it); rc in $rc, podman argv in $got
 run() { rm -f -- "$w/args"; (cd "$w/cwd" && "$wrapper" "$@" </dev/null >/dev/null 2>"$w/err"); rc=$?
@@ -42,6 +42,10 @@ run --format=jxl "$w/in" "$w/out"
 assert "--format=jxl passed through"              '[[ "$got" == "$(want -v "$w/in:/in:ro" -v "$w/out:/out" $img --format=jxl /in /out)" ]]'
 MM_FORMAT=avif run "$w/in" "$w/out"
 assert "MM_FORMAT forwarded"                      '[[ "$got" == "$(want -e MM_FORMAT -v "$w/in:/in:ro" -v "$w/out:/out" $img /in /out)" ]]'
+run --encoder-opts 'Q=65,effort=6' "$w/in" "$w/out"
+assert "--encoder-opts and its value passed through" '[[ "$got" == "$(want -v "$w/in:/in:ro" -v "$w/out:/out" $img --encoder-opts Q=65,effort=6 /in /out)" ]]'
+MM_ENCODER_OPTS=Q=60 run "$w/in" "$w/out"
+assert "MM_ENCODER_OPTS forwarded"                '[[ "$got" == "$(want -e MM_ENCODER_OPTS -v "$w/in:/in:ro" -v "$w/out:/out" $img /in /out)" ]]'
 MM_JOBS=2 MM_FORMAT=avif run "$w/in" "$w/out"
 assert "MM_JOBS and MM_FORMAT forwarded"          '[[ "$got" == "$(want -e MM_JOBS -e MM_FORMAT -v "$w/in:/in:ro" -v "$w/out:/out" $img /in /out)" ]]'
 MEDIAMILL_IMAGE=localhost/mediamill:dev run "$w/in" "$w/out"
@@ -55,7 +59,7 @@ ln -s "$wrapper" "$w/stub/mediamill"
 assert "runs from PATH through a symlink"         '[[ $rc -eq 0 && -d "$w/out2" ]]'
 
 # usage and input errors: exit 1, podman never called
-for c in "" "$w/in" "$w/missing $w/out" "$w/in $w/in/sub" "$w/in $w/in" "a b c" "--format" "--format $w/in"; do
+for c in "" "$w/in" "$w/missing $w/out" "$w/in $w/in/sub" "$w/in $w/in" "a b c" "--format" "--format $w/in" "--encoder-opts"; do
   run ${=c}
   assert "error '${c//$w/…}': exit 1, no podman" '[[ $rc -eq 1 && ! -e "$w/args" && -s "$w/err" ]]'
 done
