@@ -82,6 +82,11 @@ jobs:
           mkdir -p /tmp/p && chmod 777 /tmp/p
           docker run --rm -v "$PWD/test/fixtures/tiny.pdf:/in/tiny.pdf:ro" -v /tmp/p:/out "$ref" /in/tiny.pdf /out
           test -s /tmp/p/0000.jpg && test -s /tmp/p/0001.jpg
+          # --format jxl / avif: the encoders are in the image and the P3 fixture converts
+          docker run --rm -v "$PWD/test/fixtures/p3.jpg:/in/p3.jpg:ro" -v /tmp/r:/out "$ref" --format jxl /in/p3.jpg /out/p3.jxl
+          docker run --rm -v "$PWD/test/fixtures/p3.jpg:/in/p3.jpg:ro" -v /tmp/r:/out "$ref" --format avif /in/p3.jpg /out/p3.avif
+          test "$(docker run --rm -v /tmp/r:/r:ro --entrypoint vipsheader "$ref" -f vips-loader /r/p3.jxl)" = jxlload
+          test "$(docker run --rm -v /tmp/r:/r:ro --entrypoint vipsheader "$ref" -f heif-compression /r/p3.avif)" = av1
           docker run --rm --entrypoint sh "$ref" -c 'ldd /usr/local/lib/libvips.so.42 | grep -q "libjpeg.so.62 => /usr/local/lib/"'
       - name: Tests (repo scripts with the image's tools, as the container user)
         run: |

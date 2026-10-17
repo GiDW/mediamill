@@ -1,17 +1,25 @@
 #!/usr/bin/env zsh
 # Convert ONE file. Invoked by libexec/mediamill (directly or via xargs -P).
 # Usage: mediamill-worker <absolute-file>
-# Env (all optional except the roots in directory mode): see README "worker interface".
+# Env (all optional except the roots in directory mode): MM_IN_ROOT, MM_OUT_ROOT, MM_FORMAT
+# (jpg|jxl|avif, default jpg), MM_VIPS_OPTS (replaces the format's encoder options), MM_FORCE,
+# MM_VIPS, MM_VIPSHEADER, MM_FFMPEG.
 set -u
 readonly file="$1"
 # Trailing slashes are stripped so "${file#${in_root}/}" maps in -> out correctly with MM_IN_ROOT=/in/.
 readonly in_root="${${MM_IN_ROOT:?MM_IN_ROOT not set}%/}"
 readonly out_root="${${MM_OUT_ROOT:?MM_OUT_ROOT not set}%/}"
-readonly vips_opts="${MM_VIPS_OPTS:-[Q=75,keep=none,trellis-quant,interlace,optimize-coding,optimize-scans,quant-table=3,subsample_mode=on]}"
 readonly vips_bin="${MM_VIPS:-vips}"
 readonly ffmpeg_bin="${MM_FFMPEG:-ffmpeg}"
 readonly force="${MM_FORCE:-0}"
 source "${0:A:h}/mediamill-lib.zsh" || exit 1
+readonly format="${MM_FORMAT:-jpg}"
+mm_vips_opts "$format"; readonly vips_opts="${MM_VIPS_OPTS:-$REPLY}"
+mm_format_tag "$format"; readonly pic_tag="$REPLY"
+# jpg converts to sRGB; jxl/avif keep the source profile. Without --export-profile, thumbnail
+# still turns CMYK into sRGB, so only the wide-gamut RGB cases differ.
+typeset -a colour_opts=()
+[[ "$format" == jpg ]] && colour_opts=(--export-profile srgb)
 
 readonly rel="${file#${in_root}/}"
 readonly dest="${out_root}/${rel}"
@@ -43,11 +51,11 @@ convert_to() {
   errf="$(mktemp "${TMPDIR:-/tmp}/mm.XXXXXX")"
   local rc=0
   case "$kind" in
-    # thumbnail, not copy: it applies EXIF orientation to the pixels and converts an embedded
-    # ICC profile (Display P3 from iPhones, CMYK) to sRGB; keep=none then drops all metadata.
+    # thumbnail, not copy: it applies EXIF orientation to the pixels and (jpg) converts an
+    # embedded ICC profile (Display P3 from iPhones, CMYK) to sRGB; keep= then drops the metadata.
     # The bound is VIPS_MAX_COORD with --size down, so nothing is ever resized. Untagged,
     # upright sources come out byte-identical to a plain copy.
-    image) "$vips_bin" thumbnail "$file" "${tmp}${vips_opts}" 10000000 --size down --export-profile srgb \
+    image) "$vips_bin" thumbnail "$file" "${tmp}${vips_opts}" 10000000 --size down $colour_opts \
              2>"$errf" || rc=$? ;;
     video) "$ffmpeg_bin" -nostdin -hide_banner -loglevel error -y -i "$file" \
              -movflags faststart -pix_fmt yuv420p \
@@ -61,12 +69,19 @@ convert_to() {
   fi
   mv -f -- "$tmp" "$target" || { cleanup; fail "rename failed" }
   tmp=""; cleanup
-  case "$kind" in image) print -r -- "JPG ${rel}" ;; video) print -r -- "MP4 ${rel}" ;; esac
+  case "$kind" in image) print -r -- "${pic_tag} ${rel}" ;; video) print -r -- "MP4 ${rel}" ;; esac
 }
 
 # One source, one target: two sources mapping to the same name are rejected up front
 # by libexec/mediamill (clash preflight), so no renaming happens here.
 mm_kind "$ext_lower"; readonly kind="$REPLY"
+# AVIF is written as RGB: libvips widens a grey image without converting it, and the grey profile
+# is dropped, so a tagged grey source would be read as sRGB. Convert grey to sRGB through its
+# profile instead (jxl keeps grey and its profile). An unreadable header leaves the default path.
+if [[ "$kind" == image && "$format" == avif ]]; then
+  bands="$("${MM_VIPSHEADER:-vipsheader}" -f bands "$file" 2>/dev/null)"
+  [[ "$bands" == <1-2> ]] && colour_opts=(--export-profile srgb)
+fi
 mm_target "$dest"
 case "$kind" in
   image|video) convert_to "$kind" "$REPLY" ;;

@@ -1,5 +1,6 @@
 # mediamill — libvips compiled against mozjpeg (distro libvips links libjpeg-turbo and
-# silently drops trellis-quant/optimize-scans/quant-table), static ffmpeg, zsh scripts.
+# silently drops trellis-quant/optimize-scans/quant-table), plus libjxl and libheif's aom AV1
+# encoder for the JPEG XL / AVIF formats, static ffmpeg, zsh scripts.
 # Build: podman build -t localhost/mediamill:dev .
 
 # Sources are verified before use: mozjpeg by the commit its tag points to (GitHub's generated
@@ -23,7 +24,7 @@ ARG VIPS_SHA256
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl git build-essential cmake nasm meson ninja-build pkgconf \
       libglib2.0-dev libexpat1-dev libheif-dev libpng-dev libwebp-dev \
-      libopenjp2-7-dev libexif-dev liblcms2-dev libhwy-dev \
+      libopenjp2-7-dev libexif-dev liblcms2-dev libhwy-dev libjxl-dev \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 # mozjpeg: libjpeg62 ABI + encoder extensions. LIBDIR must be absolute (relative → installs into cwd).
@@ -42,11 +43,11 @@ RUN curl -fsSL -o vips.tar.xz "https://github.com/libvips/libvips/releases/downl
       -Ddeprecated=false -Dexamples=false -Dcplusplus=false -Ddocs=false \
       -Dmodules=disabled -Dintrospection=disabled -Dvapi=false \
       -Djpeg=enabled -Dpng=enabled -Dwebp=enabled -Dheif=enabled -Dopenjpeg=enabled \
-      -Dexif=enabled -Dlcms=enabled -Dhighway=enabled \
+      -Dexif=enabled -Dlcms=enabled -Dhighway=enabled -Djpeg-xl=enabled \
       -Dcgif=disabled -Dimagequant=disabled -Dquantizr=disabled -Dspng=disabled -Dorc=disabled \
       -Dmagick=disabled -Dpoppler=disabled -Drsvg=disabled -Dtiff=disabled -Dpangocairo=disabled \
       -Dfontconfig=disabled -Dopenslide=disabled -Dmatio=disabled -Dcfitsio=disabled -Dfftw=disabled \
-      -Dopenexr=disabled -Djpeg-xl=disabled -Dpdfium=disabled -Dnifti=disabled -Duhdr=disabled -Darchive=disabled \
+      -Dopenexr=disabled -Dpdfium=disabled -Dnifti=disabled -Duhdr=disabled -Darchive=disabled \
  && meson compile -C build && meson install -C build \
  && grep -q '^#define HAVE_JPEG_EXT_PARAMS' build/config.h   # build fails if mozjpeg extensions were not detected
 
@@ -54,21 +55,27 @@ RUN curl -fsSL -o vips.tar.xz "https://github.com/libvips/libvips/releases/downl
 FROM docker.io/library/debian:trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
       zsh findutils coreutils poppler-utils \
-      libglib2.0-0t64 libexpat1 libheif1 libheif-plugin-libde265 libheif-plugin-dav1d \
-      libpng16-16t64 libwebp7 libwebpmux3 libwebpdemux2 libopenjp2-7 libexif12 liblcms2-2 libhwy1t64 \
+      libglib2.0-0t64 libexpat1 libheif1 libheif-plugin-libde265 libheif-plugin-dav1d libheif-plugin-aomenc \
+      libpng16-16t64 libwebp7 libwebpmux3 libwebpdemux2 libopenjp2-7 libexif12 liblcms2-2 libhwy1t64 libjxl0.11 \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd -g 65532 app && useradd -M -u 65532 -g 65532 -d /out -s /usr/sbin/nologin app \
  && mkdir -p /in /out && chown 65532:65532 /out
 COPY --from=builder /usr/local/lib /usr/local/lib
-# vipsheader: used by the tests CI runs inside the image, and handy for inspecting output
+# vipsheader: the worker reads band counts with it (AVIF grey handling); the tests use it too
 COPY --from=builder /usr/local/bin/vips /usr/local/bin/vipsheader /usr/local/bin/
 # ffprobe is not used by the tool; each static binary is ~105 MB
 COPY --from=ffmpeg  /ffmpeg /usr/local/bin/ffmpeg
 # Search order is enforced by 00-usr-local.conf (sorts before libc.conf and the multiarch conf, so
 # /usr/local/lib wins on every arch) and verified by the ldd assertion: libjpeg.so.62 must resolve to mozjpeg.
+# The JXL/AVIF encodes are real: vips lists heifsave for .avif even without an AV1 encoder plugin,
+# and only an actual save shows that one is installed.
 RUN echo /usr/local/lib > /etc/ld.so.conf.d/00-usr-local.conf \
  && ldconfig \
  && ldd /usr/local/lib/libvips.so.42 | grep -q 'libjpeg.so.62 => /usr/local/lib/' \
+ && /usr/local/bin/vips black /tmp/t.v 16 16 \
+ && /usr/local/bin/vips copy /tmp/t.v /tmp/t.jxl && test "$(/usr/local/bin/vipsheader -f vips-loader /tmp/t.jxl)" = jxlload \
+ && /usr/local/bin/vips copy /tmp/t.v /tmp/t.avif && test "$(/usr/local/bin/vipsheader -f heif-compression /tmp/t.avif)" = av1 \
+ && rm -f /tmp/t.v /tmp/t.jxl /tmp/t.avif \
  && /usr/local/bin/vips --version && /usr/local/bin/ffmpeg -version | head -1 && /usr/bin/pdfimages -v 2>&1 | head -1
 COPY libexec/mediamill libexec/mediamill-worker libexec/mediamill-lib.zsh /usr/local/bin/
 
@@ -77,13 +84,13 @@ ARG GIT_SHA=unknown
 ARG BUILD_DATE=unknown
 LABEL org.opencontainers.image.title="mediamill" \
       org.opencontainers.image.source="https://github.com/GiDW/mediamill" \
-      org.opencontainers.image.description="Batch image -> optimised JPEG (libvips+mozjpeg), gif -> mp4 (ffmpeg)" \
+      org.opencontainers.image.description="Batch image -> optimised JPEG (libvips+mozjpeg), JPEG XL or AVIF, gif -> mp4 (ffmpeg)" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${GIT_SHA}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.licenses="MIT"
 
-ENV MM_VIPS=/usr/local/bin/vips MM_FFMPEG=/usr/local/bin/ffmpeg MM_PDFIMAGES=/usr/bin/pdfimages
+ENV MM_VIPS=/usr/local/bin/vips MM_VIPSHEADER=/usr/local/bin/vipsheader MM_FFMPEG=/usr/local/bin/ffmpeg MM_PDFIMAGES=/usr/bin/pdfimages
 VOLUME ["/in", "/out"]
 WORKDIR /out
 USER 65532:65532

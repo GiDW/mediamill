@@ -9,7 +9,7 @@ mediamill converts a tree of images to optimised JPEG (libvips built against moz
 | `bin/mediamill` | Host wrapper, the only thing users run. Builds a `podman run` with the right mounts and user mapping, then `exec`s it. |
 | `libexec/mediamill` | Dispatcher, runs **inside the image** (`/usr/local/bin/mediamill`). Option parsing, single-file / PDF / directory modes, clash preflight, `xargs -P` fan-out. |
 | `libexec/mediamill-worker` | Converts one file. Temp file + rename, skip when up to date, `FAIL` on stderr. |
-| `libexec/mediamill-lib.zsh` | Shared by dispatcher and worker: which extensions are images/videos and what their target name is. |
+| `libexec/mediamill-lib.zsh` | Shared by dispatcher and worker: which extensions are images/videos, what their target name is, and the per-format encoder defaults (`mm_vips_opts`). |
 | `test/*.test.sh` | Test suites; CI runs every file matching this pattern. |
 | `test/make-corpus.sh` | Synthetic corpus for the CI smoke test. |
 | `test/fixtures/` | Small committed inputs (EXIF-rotated, Display P3, HEIC, animated GIF, PDF). |
@@ -28,7 +28,7 @@ podman build -t localhost/mediamill:dev .
 for t in test/*.test.sh; do podman run --rm -v "$PWD:/repo:ro" --entrypoint zsh localhost/mediamill:dev "/repo/$t" || break; done
 ```
 
-- `clash`, `cli`, `wrapper` and `syntax` need only zsh and also run directly on the host. `worker` and `pdf` need the image.
+- `clash`, `cli`, `wrapper` and `syntax` need only zsh and also run directly on the host. `worker`, `pdf` and `single` need the image.
 - Each suite prints `ok`/`FAIL` lines and ends with `failures: N`; the exit code is non-zero on any failure.
 - Use podman for any other tool too (actionlint: `podman run --rm -v "$PWD:/repo:ro" -w /repo docker.io/rhysd/actionlint:latest -no-color`).
 - On macOS, podman machine only shares `/Users`, `/private` and `/var/folders`. Mount from `/private/tmp` or `mktemp -d`, never `/tmp`.
@@ -46,10 +46,10 @@ for t in test/*.test.sh; do podman run --rm -v "$PWD:/repo:ro" --entrypoint zsh 
 
 ### Output contract (documented in README; keep code, tests and README in sync)
 
-- stdout: `JPG`, `MP4`, `CP`, `SKIP`, `RAW` per file, `PDF <file>: <n> images`. `--quiet` means nothing at all on stdout.
+- stdout: `JPG`/`JXL`/`AVIF` (per `--format`), `MP4`, `CP`, `SKIP`, `RAW` per file, `PDF <file>: <n> images`. `--quiet` means nothing at all on stdout.
 - stderr: `FAIL <file>: <reason>` and `CLASH <output> <- <sources>`.
 - Exit codes: `0` ok, `1` usage or input error, `2` one or more files failed, `3` output name clash (nothing written).
-- Changing `MM_VIPS_OPTS` or the vips/ffmpeg invocation changes output bytes for every user. `worker.test.sh` checks that the mozjpeg options take effect; keep that passing.
+- Changing `mm_vips_opts` or the vips/ffmpeg invocation changes output bytes for every user. `worker.test.sh` checks that the mozjpeg options take effect and that default `jpg` output is byte-identical to the historic encode; keep both passing. `MM_VIPS_OPTS`, when set, replaces the active format's options.
 
 ## Containerfile and dependencies
 
