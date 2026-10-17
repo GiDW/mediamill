@@ -28,7 +28,7 @@ podman build -t localhost/mediamill:dev .
 for t in test/*.test.sh; do podman run --rm -v "$PWD:/repo:ro" --entrypoint zsh localhost/mediamill:dev "/repo/$t" || break; done
 ```
 
-- `clash`, `cli`, `wrapper` and `syntax` need only zsh and also run directly on the host. `worker`, `pdf` and `single` need the image.
+- `clash`, `cli`, `opts`, `wrapper` and `syntax` need only zsh and also run directly on the host. `worker`, `pdf` and `single` need the image.
 - Each suite prints `ok`/`FAIL` lines and ends with `failures: N`; the exit code is non-zero on any failure.
 - Use podman for any other tool too (actionlint: `podman run --rm -v "$PWD:/repo:ro" -w /repo docker.io/rhysd/actionlint:latest -no-color`).
 - On macOS, podman machine only shares `/Users`, `/private` and `/var/folders`. Mount from `/private/tmp` or `mktemp -d`, never `/tmp`.
@@ -49,7 +49,7 @@ for t in test/*.test.sh; do podman run --rm -v "$PWD:/repo:ro" --entrypoint zsh 
 - stdout: `JPG`/`JXL`/`AVIF` (per `--format`), `MP4`, `CP`, `SKIP`, `RAW` per file, `PDF <file>: <n> images`. `--quiet` means nothing at all on stdout.
 - stderr: `FAIL <file>: <reason>` and `CLASH <output> <- <sources>`.
 - Exit codes: `0` ok, `1` usage or input error, `2` one or more files failed, `3` output name clash (nothing written).
-- Changing `mm_vips_opts` or the vips/ffmpeg invocation changes output bytes for every user. `worker.test.sh` checks that the mozjpeg options take effect and that default `jpg` output is byte-identical to the historic encode; keep both passing. `MM_VIPS_OPTS`, when set, replaces the active format's options.
+- Changing `mm_vips_opts` or the vips/ffmpeg invocation changes output bytes for every user. `worker.test.sh` checks that the mozjpeg options take effect and that default `jpg` output is byte-identical to the historic encode; keep both passing. User settings from `--encoder-opts` / `MM_ENCODER_OPTS` are merged into these defaults per name by `mm_merge_opts`.
 
 ## Containerfile and dependencies
 

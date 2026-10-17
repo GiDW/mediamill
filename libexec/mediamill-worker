@@ -2,7 +2,7 @@
 # Convert ONE file. Invoked by libexec/mediamill (directly or via xargs -P).
 # Usage: mediamill-worker <absolute-file>
 # Env (all optional except the roots in directory mode): MM_IN_ROOT, MM_OUT_ROOT, MM_FORMAT
-# (jpg|jxl|avif, default jpg), MM_VIPS_OPTS (replaces the format's encoder options), MM_FORCE,
+# (jpg|jxl|avif, default jpg), MM_ENCODER_OPTS (settings that replace the format's defaults), MM_FORCE,
 # MM_VIPS, MM_VIPSHEADER, MM_FFMPEG.
 set -u
 readonly file="$1"
@@ -14,7 +14,7 @@ readonly ffmpeg_bin="${MM_FFMPEG:-ffmpeg}"
 readonly force="${MM_FORCE:-0}"
 source "${0:A:h}/mediamill-lib.zsh" || exit 1
 readonly format="${MM_FORMAT:-jpg}"
-mm_vips_opts "$format"; readonly vips_opts="${MM_VIPS_OPTS:-$REPLY}"
+mm_vips_opts "$format"; mm_merge_opts "$REPLY" "${MM_ENCODER_OPTS:-}"; readonly vips_opts="$REPLY"
 mm_format_tag "$format"; readonly pic_tag="$REPLY"
 # jpg converts to sRGB; jxl/avif keep the source profile. Without --export-profile, thumbnail
 # still turns CMYK into sRGB, so only the wide-gamut RGB cases differ.

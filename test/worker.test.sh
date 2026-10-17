@@ -52,6 +52,13 @@ vips copy "$in/d/noise.png" "$w/plain.jpg[Q=75,keep=none,interlace]"
 "$worker" "$in/d/noise.png" >/dev/null
 assert "progressive jpeg (interlace)"        '[[ " $(od -An -v -tx1 "$out/d/noise.jpg" | tr -s " \n" "  ") " == *" ff c2 "* ]]'
 assert "mozjpeg opts: < 90% of a plain progressive Q=75" '(( $(wc -c < "$out/d/noise.jpg") * 10 < $(wc -c < "$w/plain.jpg") * 9 ))'
+# MM_ENCODER_OPTS replaces single settings: interlace=false turns the default progressive encode
+# baseline (no SOF2), keep=all brings the EXIF back. Both are the user's call.
+mkdir -p "$w/eo/d"
+MM_OUT_ROOT="$w/eo" MM_ENCODER_OPTS='interlace=false' "$worker" "$in/d/noise.png" >/dev/null
+assert "MM_ENCODER_OPTS interlace=false: baseline jpeg" '[[ -s "$w/eo/d/noise.jpg" && " $(od -An -v -tx1 "$w/eo/d/noise.jpg" | tr -s " \n" "  ") " != *" ff c2 "* ]]'
+MM_OUT_ROOT="$w/eo" MM_ENCODER_OPTS='keep=all' "$worker" "$in/d/rot6.jpg" >/dev/null
+assert "MM_ENCODER_OPTS keep=all keeps exif"    'grep -qa "Exif" "$w/eo/d/rot6.jpg"'
 # The default format must stay byte-identical to the encode mediamill has always done.
 vips thumbnail "$in/d/noise.png" "$w/ref.jpg[Q=75,keep=none,trellis-quant,interlace,optimize-coding,optimize-scans,quant-table=3,subsample_mode=on]" 10000000 --size down --export-profile srgb
 assert "default jpg byte-identical to the historic encode" 'cmp -s "$out/d/noise.jpg" "$w/ref.jpg"'
@@ -97,8 +104,8 @@ for fmt in jxl avif; do
   conv grey.png >/dev/null 2>&1; rc=$?
   assert "$fmt: greyscale png converts"        '[[ $rc -eq 0 ]] && vipsheader "$o/d/grey.$fmt" >/dev/null 2>&1'
   conv noise.png >/dev/null 2>&1
-  MM_FORMAT=$fmt MM_OUT_ROOT="$w/q-$fmt" MM_VIPS_OPTS='[Q=20,keep=icc]' "$worker" "$in/d/noise.png" >/dev/null 2>&1
-  assert "$fmt: MM_VIPS_OPTS reaches the encoder (Q=20 smaller)" '(( $(wc -c < "$w/q-$fmt/d/noise.$fmt") < $(wc -c < "$o/d/noise.$fmt") ))' 2>/dev/null
+  MM_FORMAT=$fmt MM_OUT_ROOT="$w/q-$fmt" MM_ENCODER_OPTS='Q=20' "$worker" "$in/d/noise.png" >/dev/null 2>&1
+  assert "$fmt: MM_ENCODER_OPTS reaches the encoder (Q=20 smaller)" '(( $(wc -c < "$w/q-$fmt/d/noise.$fmt") < $(wc -c < "$o/d/noise.$fmt") ))' 2>/dev/null
 done
 "$worker" "$in/d/UP.PNG" >/dev/null;        assert "uppercase ext, stem kept" '[[ -s "$out/d/UP.jpg" ]]'
 # clashes are the dispatcher's job (preflight): the worker never renames, even next to a same-stem .jpg

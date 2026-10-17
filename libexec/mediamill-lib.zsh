@@ -16,6 +16,33 @@ mm_vips_opts() {
   esac
 }
 
+# Succeeds if $1 is a non-empty comma-separated list of name or name=value, the syntax of a vips
+# option string. Brackets, an empty item or an empty value cannot be passed through to vips.
+mm_valid_opts() {
+  setopt localoptions extendedglob
+  local tok
+  [[ -n "$1" ]] || return 1
+  for tok in "${(@s:,:)1}"; do
+    [[ "$tok" == [A-Za-z][A-Za-z0-9_-]#(|=[^][=]##) ]] || return 1
+  done
+}
+
+# REPLY = the defaults $1 ("[a,b=1,...]") with each setting of $2 ("b=2,c") replacing the one of
+# the same name in place, or appended when new. A bare switch (interlace) is replaced by
+# interlace=false the same way. Names compare with _ and - as equal, as vips treats them.
+mm_merge_opts() {
+  local tok key
+  local -a order out
+  local -A val
+  for tok in ${(s:,:)${${1#\[}%\]}} ${(s:,:)2}; do
+    key="${${tok%%=*}//_/-}"
+    (( ${+val[$key]} )) || order+=("$key")
+    val[$key]="$tok"
+  done
+  for key in $order; do out+=("${val[$key]}"); done
+  REPLY="[${(j:,:)out}]"
+}
+
 # REPLY = the stdout status tag for format $1 (JPG, JXL, AVIF).
 mm_format_tag() { REPLY="${(U)1}" }
 

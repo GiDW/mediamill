@@ -44,5 +44,20 @@ run MM_FORMAT=webp -- --format avif
 assert "valid --format overrides bad MM_FORMAT" '[[ $rc -eq 0 ]]'
 run MM_FORMAT=jxl --
 assert "MM_FORMAT=jxl accepted"                 '[[ $rc -eq 0 ]]'
+# --encoder-opts: syntax is checked up front (the stubbed vips accepts any name, see single.test.sh)
+for bad in "Q=[5]" "Q=65,," "=5"; do
+  run -- --encoder-opts "$bad"
+  assert "--encoder-opts '$bad': usage error"  '[[ $rc -eq 1 ]] && grep -q "^usage:" "$w/err"'
+done
+"$mm" --encoder-opts >/dev/null 2>"$w/err"; rc=$?
+assert "--encoder-opts without a value: usage error" '[[ $rc -eq 1 ]] && grep -q "^usage:" "$w/err"'
+run -- --encoder-opts 'Q=65,effort=6'
+assert "--encoder-opts Q=65,effort=6 accepted" '[[ $rc -eq 0 ]]'
+run -- --encoder-opts=Q=65
+assert "--encoder-opts=Q=65 accepted"           '[[ $rc -eq 0 ]]'
+run MM_ENCODER_OPTS='Q=]' --
+assert "bad MM_ENCODER_OPTS: usage error"       '[[ $rc -eq 1 ]] && grep -q "^MM_ENCODER_OPTS must be a comma-separated list of name or name=value, got: Q=]" "$w/err"'
+run MM_ENCODER_OPTS='Q=]' -- --encoder-opts Q=60
+assert "valid --encoder-opts overrides bad MM_ENCODER_OPTS" '[[ $rc -eq 0 ]]'
 
 print "failures: $fails"; exit $(( fails > 0 ))

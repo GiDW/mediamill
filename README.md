@@ -72,9 +72,9 @@ Old images are not removed by a pull. Reclaim the space with `podman image prune
 ## Usage
 
 ```
-mediamill [--jobs N] [--force] [--quiet] [--format jpg|jxl|avif] <input-dir> <output-dir>
-mediamill [--force] [--quiet] [--format jpg|jxl|avif] <image|gif> [<output-file>]
-mediamill [--jobs N] [--force] [--quiet] [--format jpg|jxl|avif] [--extract-only] <file.pdf> [<out-dir>]
+mediamill [--jobs N] [--force] [--quiet] [--format jpg|jxl|avif] [--encoder-opts LIST] <input-dir> <output-dir>
+mediamill [--force] [--quiet] [--format jpg|jxl|avif] [--encoder-opts LIST] <image|gif> [<output-file>]
+mediamill [--jobs N] [--force] [--quiet] [--format jpg|jxl|avif] [--encoder-opts LIST] [--extract-only] <file.pdf> [<out-dir>]
 mediamill --help
 ```
 
@@ -103,6 +103,15 @@ Convert to AVIF or JPEG XL instead of JPEG. An explicit output file must have th
 mediamill --format avif ~/Pictures/2026-trip ~/Pictures/2026-trip-avif
 mediamill --format jxl ~/Pictures/IMG_0042.heic ~/Desktop/IMG_0042.jxl
 ```
+
+Change single encoder settings. Each `name=value` replaces the default setting of that name, anything new is added, and the other defaults stay (the defaults are in the table under "What happens to each file"). A switch such as `interlace` is turned off with `interlace=false`; `_` and `-` in names are interchangeable:
+
+```sh
+mediamill --format avif --encoder-opts 'Q=65,effort=6' ~/Pictures/raw ~/Pictures/out
+mediamill --encoder-opts 'Q=85,interlace=false' ~/Pictures/IMG_0042.heic
+```
+
+The names are libvips save options (`vips jpegsave`, `vips jxlsave`, `vips heifsave` list them). An unknown name or a bad value stops the run with exit `1` before anything is written. Settings are applied as given, including `keep=all`, which keeps EXIF and GPS. Existing outputs are not re-encoded when only the settings change: use `--force` for that.
 
 Limit parallelism, for example on a shared machine:
 
@@ -142,9 +151,11 @@ Files are written to a temporary name and renamed when complete, so a killed run
 | `--force` | rewrite targets even when up to date | off |
 | `--quiet` | print nothing on stdout; failures still go to stderr and the exit code is unchanged | off |
 | `--format jpg\|jxl\|avif` | image output format | `jpg` |
+| `--encoder-opts LIST` | comma-separated encoder settings that replace the format's defaults | |
 | `--extract-only` | PDF input only: stop after extraction and rename, do not convert | off |
 | `MM_JOBS=N` | same as `--jobs`, for the wrapper | |
 | `MM_FORMAT=F` | same as `--format`, for the wrapper; `--format` wins | |
+| `MM_ENCODER_OPTS=LIST` | same as `--encoder-opts`, for the wrapper; the option wins | |
 | `MEDIAMILL_IMAGE` | image the wrapper runs | `ghcr.io/gidw/mediamill:latest` |
 
 Exit codes: `0` success, `1` usage or input error, `2` finished but one or more files failed (see the `FAIL` lines), `3` output name clashes, nothing converted (see the `CLASH` lines).
@@ -178,13 +189,14 @@ podman build -t localhost/mediamill:dev .          # builds libvips against mozj
 test/worker.test.sh                                # per-file worker: naming, encoder options, skip/force, failure and signal cleanup
 test/clash.test.sh                                 # clash preflight (vips/ffmpeg stubbed, runs anywhere)
 test/cli.test.sh                                   # option and MM_JOBS validation (no media tools needed)
+test/opts.test.sh                                  # --encoder-opts merging and validation (zsh only)
 test/pdf.test.sh                                   # PDF input flow
-test/single.test.sh                                # single-file mode: output names per --format
+test/single.test.sh                                # single-file mode per --format, --encoder-opts preflight
 test/wrapper.test.sh                               # host wrapper: the podman command it builds (podman stubbed)
 test/syntax.test.sh                                # zsh -n on every script
 ```
 
-`clash`, `cli`, `wrapper` and `syntax` need only zsh. The others need vips, vipsheader, ffmpeg and pdfimages; the image has all of them, so the simplest way to run one is inside it:
+`clash`, `cli`, `opts`, `wrapper` and `syntax` need only zsh. The others need vips, vipsheader, ffmpeg and pdfimages; the image has all of them, so the simplest way to run one is inside it:
 
 ```sh
 podman run --rm -v "$PWD:/repo:ro" --entrypoint zsh localhost/mediamill:dev /repo/test/worker.test.sh
