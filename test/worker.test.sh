@@ -58,6 +58,14 @@ assert "default jpg byte-identical to the historic encode" 'cmp -s "$out/d/noise
 "$worker" "$in/d/alpha.png" >/dev/null
 assert "jpg drops alpha (3 bands)"           '[[ "$(vipsheader -f bands "$out/d/alpha.jpg")" == 3 ]]'
 
+# Grey JPEG tagged with a linear-gamma grey profile: 128 is linear 0.5, i.e. sRGB 188. Read
+# through its own profile (or as sRGB when it has none), every output must show ~188.
+cp "$here/fixtures/grey-linear.jpg" "$in/d/grey-linear.jpg"
+srgb_px() { local -a v; v=(${=$(vips icc_transform "$1" "$w/gs.v" srgb --embedded >/dev/null 2>&1 && vips getpoint "$w/gs.v" 4 4 2>/dev/null)}); REPLY="${v[1]:-}" }
+"$worker" "$in/d/grey-linear.jpg" >/dev/null
+srgb_px "$out/d/grey-linear.jpg"
+assert "jpg: grey profile honoured (srgb 188 +-6)" '[[ -n "$REPLY" ]] && (( abs(REPLY-188) <= 6 ))'
+
 # JPEG XL and AVIF: same pipeline, but the colour profile and alpha are kept (no sRGB export).
 # assert evals at once, so $fmt/$o in the single-quoted checks are this iteration's values.
 typeset -A loader=(jxl jxlload avif heifload)
@@ -77,6 +85,9 @@ for fmt in jxl avif; do
   assert "$fmt: icc profile embedded"          'vipsheader -a "$o/d/p3.$fmt" 2>/dev/null | grep -q "^icc-profile-data:"'
   px=(${=$(vips getpoint "$o/d/p3.$fmt" 8 8 2>/dev/null)})
   assert "$fmt: p3 pixel kept (234,51,35 +-6)" '(( ${#px} >= 3 && abs(px[1]-234) <= 6 && abs(px[2]-51) <= 6 && abs(px[3]-35) <= 6 ))'
+  conv grey-linear.jpg >/dev/null 2>&1
+  srgb_px "$o/d/grey-linear.$fmt"
+  assert "$fmt: grey profile honoured (srgb 188 +-6)" '[[ -n "$REPLY" ]] && (( abs(REPLY-188) <= 6 ))'
   conv cmyk.jpg >/dev/null 2>&1
   assert "$fmt: cmyk -> 3-band"                '[[ "$(vipsheader -f bands "$o/d/cmyk.$fmt" 2>/dev/null)" == 3 ]]'
   conv alpha.png >/dev/null 2>&1

@@ -3,7 +3,7 @@
 # Usage: mediamill-worker <absolute-file>
 # Env (all optional except the roots in directory mode): MM_IN_ROOT, MM_OUT_ROOT, MM_FORMAT
 # (jpg|jxl|avif, default jpg), MM_VIPS_OPTS (replaces the format's encoder options), MM_FORCE,
-# MM_VIPS, MM_FFMPEG.
+# MM_VIPS, MM_VIPSHEADER, MM_FFMPEG.
 set -u
 readonly file="$1"
 # Trailing slashes are stripped so "${file#${in_root}/}" maps in -> out correctly with MM_IN_ROOT=/in/.
@@ -75,6 +75,13 @@ convert_to() {
 # One source, one target: two sources mapping to the same name are rejected up front
 # by libexec/mediamill (clash preflight), so no renaming happens here.
 mm_kind "$ext_lower"; readonly kind="$REPLY"
+# AVIF is written as RGB: libvips widens a grey image without converting it, and the grey profile
+# is dropped, so a tagged grey source would be read as sRGB. Convert grey to sRGB through its
+# profile instead (jxl keeps grey and its profile). An unreadable header leaves the default path.
+if [[ "$kind" == image && "$format" == avif ]]; then
+  bands="$("${MM_VIPSHEADER:-vipsheader}" -f bands "$file" 2>/dev/null)"
+  [[ "$bands" == <1-2> ]] && colour_opts=(--export-profile srgb)
+fi
 mm_target "$dest"
 case "$kind" in
   image|video) convert_to "$kind" "$REPLY" ;;
