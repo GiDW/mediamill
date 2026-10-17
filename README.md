@@ -180,4 +180,4 @@ CI builds both architectures on native runners, smoke-tests the pushed image, ru
 
 ## License
 
-MIT (see `LICENSE`) for the code in this repository. The published image also bundles third-party software under its own licences: libvips (LGPL-2.1-or-later), mozjpeg (BSD-style), and a static ffmpeg build that includes libx264 (GPL).
+MIT (see `LICENSE`) for the code in this repository. The published image also bundles third-party software under its own licences: libvips (LGPL-2.1-or-later), mozjpeg (BSD-style), libheif (LGPL-3.0-or-later), libaom (BSD-2-Clause), libjxl (BSD-3-Clause), and a static ffmpeg build that includes libx264 (GPL).
